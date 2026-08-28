@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # One-shot installer for osx-proxmox-next TUI on Proxmox VE
-# Usage: bash <(curl -sL https://raw.githubusercontent.com/lucid-fabrics/osx-proxmox-next/main/scripts/install.sh)
+# Usage: bash <(curl -sL https://raw.githubusercontent.com/MinaLouisLeon/osx-proxmox-next/main/scripts/install.sh)
 #   or:  bash install.sh [--branch NAME] [--uninstall]
 
 set -euo pipefail
 
-REPO="https://github.com/lucid-fabrics/osx-proxmox-next.git"
+REPO="https://github.com/MinaLouisLeon/osx-proxmox-next.git"
 VENV_DIR="/opt/osx-proxmox-next"
 BRANCH=""
 UNINSTALL=false
@@ -72,13 +72,9 @@ fi
 PIP="$VENV_DIR/bin/pip"
 "$PIP" install --quiet --upgrade pip
 
-if [[ -n "$BRANCH" ]]; then
-  echo "Installing from branch: $BRANCH ..."
-  "$PIP" install --quiet --upgrade "git+${REPO}@${BRANCH}"
-else
-  echo "Installing from PyPI ..."
-  "$PIP" install --quiet --upgrade osx-proxmox-next
-fi
+# This fork is not published to PyPI, so always install from git.
+echo "Installing from branch: ${BRANCH:-main} ..."
+"$PIP" install --quiet --upgrade "git+${REPO}@${BRANCH:-main}"
 
 # ── Symlink binaries ──
 ln -sf "$VENV_DIR/bin/osx-next" /usr/local/bin/osx-next

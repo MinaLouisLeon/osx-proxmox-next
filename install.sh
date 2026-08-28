@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="${OSX_NEXT_REPO_URL:-https://github.com/lucid-fabrics/osx-proxmox-next.git}"
+REPO_URL="${OSX_NEXT_REPO_URL:-https://github.com/MinaLouisLeon/osx-proxmox-next.git}"
 REPO_DIR="${OSX_NEXT_REPO_DIR:-/root/osx-proxmox-next}"
-REPO_BRANCH="${OSX_NEXT_BRANCH:-main}"
+# Branch: $OSX_NEXT_BRANCH, else the first argument, else main. Lets a one-liner
+# target a test branch:
+#   bash -c "$(curl -fsSL .../<branch>/install.sh)" _ <branch>
+REPO_BRANCH="${OSX_NEXT_BRANCH:-}"
+if [[ -z "$REPO_BRANCH" ]]; then
+  case "${1:-}" in
+    ""|-*) REPO_BRANCH="main" ;;
+    *)     REPO_BRANCH="$1" ;;
+  esac
+fi
 VENV_DIR="${OSX_NEXT_VENV_DIR:-$REPO_DIR/.venv}"
 LOG_FILE="${OSX_NEXT_LOG_FILE:-/root/osx-proxmox-next-install.log}"
 
