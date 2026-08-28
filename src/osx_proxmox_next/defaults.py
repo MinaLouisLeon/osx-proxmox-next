@@ -174,7 +174,7 @@ def detect_net_model(cpu: CpuInfo) -> str:
     return "vmxnet3"
 
 
-def _round_down_power_of_2(n: int) -> int:
+def round_down_power_of_2(n: int) -> int:
     """Round down to the nearest power of 2 (minimum 2)."""
     p = 1
     while p * 2 <= n:
@@ -182,13 +182,55 @@ def _round_down_power_of_2(n: int) -> int:
     return max(2, p)
 
 
+def is_power_of_2(n: int) -> bool:
+    """True when *n* is a power of 2 (2, 4, 8, 16, ...)."""
+    return n >= 1 and n & (n - 1) == 0
+
+
+def host_cpu_count() -> int:
+    """Logical CPUs on this host (4 when the count is unavailable)."""
+    return os.cpu_count() or 4
+
+
+def max_vm_cores() -> int:
+    """Largest core count the wizard accepts: the host CPU count.
+
+    Anything above it overcommits the host, and macOS gains nothing from
+    cores that do not exist.
+    """
+    return host_cpu_count()
+
+
+def core_choices(limit: int | None = None) -> list[int]:
+    """Power-of-2 core counts macOS boots with, up to the host CPU count."""
+    top = limit if limit and limit > 0 else max_vm_cores()
+    choices: list[int] = []
+    n = 2
+    while n <= top:
+        choices.append(n)
+        n *= 2
+    return choices or [2]
+
+
 def detect_cpu_cores() -> int:
-    count = os.cpu_count() or 4
+    count = host_cpu_count()
     # Keep host responsive and avoid overcommit by default.
     half = max(2, min(16, count // 2 if count >= 8 else count))
     # macOS expects power-of-2 core counts matching real Mac topology;
     # odd counts (e.g. 6) can hang at the Apple logo during boot.
-    return _round_down_power_of_2(half)
+    return round_down_power_of_2(half)
+
+
+# Penryn is a Core 2-era model. Old Intel hosts install macOS more reliably
+# with a small, plausible core count than with the host's full topology.
+PENRYN_CORES = 4
+
+
+def recommended_cores(use_penryn: bool = False) -> int:
+    """Core count the wizard pre-fills, honouring Penryn mode."""
+    if use_penryn:
+        return min(PENRYN_CORES, max_vm_cores())
+    return detect_cpu_cores()
 
 
 def _meminfo_mb(field: str) -> int:

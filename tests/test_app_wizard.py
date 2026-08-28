@@ -2466,7 +2466,7 @@ def test_penryn_checkbox_updates_cores(monkeypatch) -> None:
             await _advance_to_step(pilot, app, 4)
             cores_input = app.query_one("#cores", Input)
             original_cores = cores_input.value
-            # Check penryn_cb → cores forced to 4
+            # Check penryn_cb → cores suggested as 4
             await pilot.click("#penryn_cb")
             await pilot.pause()
             assert cores_input.value == "4"
@@ -2478,16 +2478,130 @@ def test_penryn_checkbox_updates_cores(monkeypatch) -> None:
     asyncio.run(_run())
 
 
-def test_disabled_cores_field_explains_itself() -> None:
-    """A disabled control must say why it is disabled (affordance rule)."""
+# -- CPU cores: auto-detected default, user-editable ------------------------
+
+
+def test_cores_field_is_editable_and_states_the_rules() -> None:
+    """The core count is a normal editable field with its limits spelled out."""
     async def _run() -> None:
         app = NextApp()
         async with app.run_test(size=(120, 50)) as pilot:
             await pilot.pause()
             await _advance_to_step(pilot, app, 4)
+            cores = app.query_one("#cores", Input)
+            assert not cores.disabled
             labels = [str(w.content) for w in app.query(".label")]
-            assert any("auto-detected" in lbl for lbl in labels)
-            assert app.query_one("#cores", Input).disabled
+            assert "CPU Cores" in labels
+            hint = str(app.query_one("#cores_hint", Static).content)
+            assert "power of 2" in hint
+            assert "logical CPUs" in hint
+
+    asyncio.run(_run())
+
+
+def test_manual_cores_survive_refill_and_reach_the_config(monkeypatch) -> None:
+    """A typed core count is not overwritten by auto-detection and is what
+    the wizard actually builds the VM with."""
+    monkeypatch.setattr(app_module, "required_assets", lambda cfg: [])
+    monkeypatch.setattr(app_module, "validate_config", lambda cfg: [])
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            cores = app.query_one("#cores", Input)
+            cores.value = "2"
+            await pilot.pause()
+            assert app.state.cores_user_set is True
+            # Back to storage and forward again: _fill_form must not stomp it.
+            # The step 4 form can exceed the viewport, so scroll before clicking.
+            app.query_one("#back_btn_4").scroll_visible()
+            for _ in range(3):
+                await pilot.pause()
+            await pilot.click("#back_btn_4")
+            await pilot.pause()
+            await pilot.click("#next_btn_3")
+            await pilot.pause()
+            assert app.query_one("#cores", Input).value == "2"
+            config = app._read_form()
+            assert config is not None and config.cores == 2
+
+    asyncio.run(_run())
+
+
+def test_cores_non_power_of_two_blocks_next() -> None:
+    """6 cores hangs macOS at the Apple logo, so the wizard refuses to advance."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            app.query_one("#cores", Input).value = "6"
+            await pilot.pause()
+            assert app._validate_form(quiet=True) is False
+            assert app.query_one("#cores", Input).has_class("invalid")
+            assert "power of 2" in str(app.query_one("#form_errors", Static).content)
+            app._go_next()
+            assert app.current_step == 4
+
+    asyncio.run(_run())
+
+
+def test_cores_above_host_cpu_count_is_rejected(monkeypatch) -> None:
+    async def _run() -> None:
+        monkeypatch.setattr("osx_proxmox_next._wizard_mixin.max_vm_cores", lambda: 4)
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            app.query_one("#cores", Input).value = "16"
+            await pilot.pause()
+            assert app._validate_form(quiet=True) is False
+            assert "4 logical CPUs" in str(app.query_one("#form_errors", Static).content)
+
+    asyncio.run(_run())
+
+
+def test_suggest_defaults_restores_detected_cores() -> None:
+    """"Suggest Defaults" is the explicit way back to the auto-detected value."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            detected = app.query_one("#cores", Input).value
+            app.query_one("#cores", Input).value = "2"
+            await pilot.pause()
+            app.query_one("#suggest_btn").scroll_visible()
+            for _ in range(3):
+                await pilot.pause()
+            await pilot.click("#suggest_btn")
+            await pilot.pause()
+            assert app.query_one("#cores", Input).value == detected
+            assert app.state.cores_user_set is False
+
+    asyncio.run(_run())
+
+
+def test_unattended_checkbox_leaves_cores_alone() -> None:
+    """Unattended install is not a CPU setting; it must not rewrite the field."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 60)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            app.query_one("#cores", Input).value = "16"
+            await pilot.pause()
+            app.query_one("#unattended_cb", Checkbox).value = True
+            await pilot.pause()
+            assert app.query_one("#cores", Input).value == "16"
+            assert app.state.unattended is True
+            app.query_one("#unattended_cb", Checkbox).value = False
+            await pilot.pause()
+            assert app.query_one("#cores", Input).value == "16"
+
+    asyncio.run(_run())
 def test_unattended_checkbox_spawns_detached_driver(monkeypatch) -> None:
     """Ticking the beta checkbox makes a successful install spawn the
     detached install-unattended process and say so in the result box."""

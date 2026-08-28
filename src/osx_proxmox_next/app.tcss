@@ -32,8 +32,8 @@ Header { background: #103252; color: #f6f8fa; }
 #config_grid {
     layout: grid;
     grid-size: 2;
-    /* 26 fits the longest labels (CPU Cores (auto-detected),
-       Existing UUID (optional)), both truncated at the previous 20. */
+    /* 26 fits the longest label (Existing UUID (optional)),
+       truncated at the previous 20. */
     grid-columns: 28 1fr;
     grid-gutter: 0 1;
     height: auto;
@@ -160,6 +160,8 @@ Input:focus { border: tall #2ec27e; background: #1a2c3f; }
 .manage_result_fail { border: heavy #d44f4f; }
 
 .hint { color: #aaaaaa; margin-top: 1; }
+/* Sits in the config grid next to its field, so no margin: it must stay on the field's row. */
+.field_hint { color: #aaaaaa; height: 1; content-align: left middle; }
 
 .manage_section_header {
     color: #9fc6e8;

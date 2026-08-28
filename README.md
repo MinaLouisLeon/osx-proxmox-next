@@ -52,7 +52,7 @@ osx-proxmox-next replaces all of it with a 6-step wizard that runs on your Proxm
 - A 6-step TUI wizard: **Preflight > OS > Storage > Config > Dry Run > Install**
 - **Unattended install (BETA)**: tick one box and walk away - the tool erases the new disk, runs the installer, and answers every reboot until macOS sits at Setup Assistant
 - OpenCore boot image assembled on your host from pinned, checksum-verified upstream releases - no opaque prebuilt blob
-- Auto-detected hardware defaults (CPU vendor, cores, RAM, storage targets)
+- Auto-detected hardware defaults (CPU vendor, cores, RAM, storage targets) - the wizard pre-fills them, you can still change cores, RAM, disk, and network
 - Intel, Xeon, and AMD CPU support - auto-detected, zero configuration needed
 - Automatic OpenCore and recovery/installer download - no manual file placement
 - Shared storage support - download ISOs to NAS or any Proxmox storage pool (`--iso-dir`)

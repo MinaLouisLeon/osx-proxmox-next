@@ -1,4 +1,5 @@
 from .step_screens import (
+    cores_hint_text,
     compose_step1,
     compose_step2,
     compose_step3,
@@ -9,6 +10,7 @@ from .step_screens import (
 from .summary_screen import build_config_summary_text, format_preflight_text, format_install_result
 
 __all__ = [
+    "cores_hint_text",
     "compose_step1",
     "compose_step2",
     "compose_step3",

@@ -123,6 +123,18 @@ class TestStepScreensImport:
         result = compose_step4(cpu)
         assert isinstance(result, types.GeneratorType)
 
+    def test_cores_hint_names_the_allowed_values_and_the_host_limit(self):
+        from osx_proxmox_next.screens import cores_hint_text
+        text = cores_hint_text(8)
+        assert "2, 4, 8" in text
+        assert "16" not in text  # beyond this host
+        assert "8 logical CPUs" in text
+
+    def test_cores_hint_falls_back_to_this_host(self):
+        from osx_proxmox_next.screens import cores_hint_text
+        for limit in (None, 0):
+            assert "logical CPUs" in cores_hint_text(limit)
+
 
 class TestFormatInstallResult:
     def test_success_references_post_install_subcommand(self):

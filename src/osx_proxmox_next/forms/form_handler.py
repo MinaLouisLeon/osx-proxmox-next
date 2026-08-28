@@ -9,8 +9,10 @@ from ..defaults import (
     DEFAULT_MEMORY_MB,
     DEFAULT_STORAGE,
     HOST_RAM_RESERVE_MB,
+    is_power_of_2,
+    round_down_power_of_2,
 )
-from ..domain import MIN_DISK_GB, MIN_MEMORY_MB, MIN_VMID, MAX_VMID, VmConfig
+from ..domain import MIN_CORES, MIN_DISK_GB, MIN_MEMORY_MB, MIN_VMID, MAX_VMID, VmConfig
 from ..smbios import SmbiosIdentity
 
 __all__ = ["FormValues", "validate_form_values", "build_vm_config_from_values"]
@@ -41,8 +43,31 @@ class FormValues:
     smbios: SmbiosIdentity | None = None
 
 
+def _validate_cores(raw: str, host_core_limit: int | None) -> str:
+    """Return an error message for the CPU cores field, or "" when valid."""
+    try:
+        cores = int(raw)
+    except ValueError:
+        return f"CPU Cores must be a whole number (at least {MIN_CORES})."
+    if cores < MIN_CORES:
+        return f"CPU Cores must be at least {MIN_CORES}."
+    if host_core_limit and cores > host_core_limit:
+        return (
+            f"This host has only {host_core_limit} logical CPUs. "
+            "Lower the core count."
+        )
+    if not is_power_of_2(cores):
+        # Non-power-of-2 topologies hang macOS at the Apple logo (see doctor).
+        return (
+            f"CPU Cores must be a power of 2 (2, 4, 8, 16) - {cores} hangs "
+            f"macOS at the Apple logo. Try {round_down_power_of_2(cores)}."
+        )
+    return ""
+
+
 def validate_form_values(values: FormValues,
-                         host_memory_limit_mb: int | None = None) -> dict[str, str]:
+                         host_memory_limit_mb: int | None = None,
+                         host_core_limit: int | None = None) -> dict[str, str]:
     """Return a dict of field_id → error message for invalid fields.
 
     Returns an empty dict when all fields are valid.
@@ -50,6 +75,9 @@ def validate_form_values(values: FormValues,
     *host_memory_limit_mb* is the largest allocation the host can take right
     now (defaults.max_vm_memory_mb()). None or 0 skips that check, so pure
     unit tests and non-Linux hosts are unaffected.
+
+    *host_core_limit* is the host's logical CPU count (defaults.max_vm_cores()).
+    None or 0 skips the ceiling check the same way.
     """
     errors: dict[str, str] = {}
 
@@ -62,6 +90,10 @@ def validate_form_values(values: FormValues,
 
     if len(values.name) < 3:
         errors["name"] = "VM Name must be at least 3 chars."
+
+    cores_error = _validate_cores(values.cores, host_core_limit)
+    if cores_error:
+        errors["cores"] = cores_error
 
     try:
         mem_val = int(values.memory)

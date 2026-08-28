@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from osx_proxmox_next.domain import MIN_VMID, MAX_VMID, MIN_MEMORY_MB, MIN_DISK_GB
+from osx_proxmox_next.domain import MIN_CORES, MIN_VMID, MAX_VMID, MIN_MEMORY_MB, MIN_DISK_GB
 from osx_proxmox_next.forms.form_handler import (
     FormValues,
     build_vm_config_from_values,
@@ -298,3 +298,54 @@ def test_vlan_invalid_values_rejected():
     for bad in ("0", "4095", "abc", "-1"):
         errors = validate_form_values(_valid_values(vlan=bad))
         assert "vlan" in errors, bad
+
+
+# ---------------------------------------------------------------------------
+# validate_form_values - CPU cores (user-editable field)
+# ---------------------------------------------------------------------------
+
+
+def test_cores_power_of_two_values_accepted() -> None:
+    for good in ("2", "4", "8", "16"):
+        errors = validate_form_values(_valid_values(cores=good), host_core_limit=16)
+        assert errors == {}, good
+
+
+def test_cores_non_power_of_two_rejected_with_nearest_suggestion() -> None:
+    errors = validate_form_values(_valid_values(cores="6"), host_core_limit=16)
+    assert "cores" in errors
+    assert "power of 2" in errors["cores"]
+    # Suggestion rounds down so it always still fits the host.
+    assert "Try 4" in errors["cores"]
+
+
+def test_cores_below_minimum_rejected() -> None:
+    errors = validate_form_values(_valid_values(cores=str(MIN_CORES - 1)))
+    assert "cores" in errors
+    assert str(MIN_CORES) in errors["cores"]
+
+
+def test_cores_not_a_number_rejected() -> None:
+    for bad in ("", "abc", "4.5"):
+        errors = validate_form_values(_valid_values(cores=bad))
+        assert "cores" in errors, bad
+
+
+def test_cores_over_host_cpu_count_rejected() -> None:
+    errors = validate_form_values(_valid_values(cores="16"), host_core_limit=8)
+    assert "cores" in errors
+    assert "8 logical CPUs" in errors["cores"]
+
+
+def test_cores_at_host_cpu_count_accepted() -> None:
+    assert validate_form_values(_valid_values(cores="8"), host_core_limit=8) == {}
+
+
+def test_cores_limit_unknown_skips_host_check() -> None:
+    for limit in (None, 0):
+        assert validate_form_values(_valid_values(cores="64"), host_core_limit=limit) == {}
+
+
+def test_cores_value_reaches_the_built_config() -> None:
+    config = build_vm_config_from_values(_valid_values(cores="16"))
+    assert config is not None and config.cores == 16
