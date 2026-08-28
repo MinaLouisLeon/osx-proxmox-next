@@ -11,34 +11,28 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/lucid-fabrics/osx-proxmox-next/actions/workflows/test.yml">
-    <img alt="Tests" src="https://github.com/lucid-fabrics/osx-proxmox-next/actions/workflows/test.yml/badge.svg">
+  <a href="https://github.com/MinaLouisLeon/osx-proxmox-next/actions/workflows/test.yml">
+    <img alt="Tests" src="https://github.com/MinaLouisLeon/osx-proxmox-next/actions/workflows/test.yml/badge.svg">
   </a>
-  <a href="https://github.com/lucid-fabrics/osx-proxmox-next">
+  <a href="https://github.com/MinaLouisLeon/osx-proxmox-next">
     <img alt="Proxmox" src="https://img.shields.io/badge/Proxmox-9%20Ready-E57000?logo=proxmox&logoColor=white">
   </a>
   <img alt="macOS" src="https://img.shields.io/badge/macOS-Ventura%2013%20%7C%20Sonoma%2014%20%7C%20Sequoia%2015%20%7C%20Tahoe%2026-111111?logo=apple&logoColor=white">
-  <a href="https://discord.gg/Ub6TunHYre">
-    <img alt="Join Discord" src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white">
-  </a>
-  <a href="https://lucid-fabrics.github.io/osx-proxmox-next/">
-    <img alt="Documentation" src="https://img.shields.io/badge/Docs-Read%20the%20Docs-blue?logo=readthedocs&logoColor=white">
-  </a>
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img alt="Support on Ko-fi" src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white">
-  </a>
-  <a href="https://buymeacoffee.com/lucidfabrics">
-    <img alt="Buy Me a Coffee" src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black">
+  <a href="docs/docs/intro.md">
+    <img alt="Documentation" src="https://img.shields.io/badge/Docs-In%20repo-blue?logo=readthedocs&logoColor=white">
   </a>
 </p>
 
-<p align="center">
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img alt="GPU Passthrough Fund progress" src="https://api.lucidfabrics.com/api/public/progress/osx-proxmox-next/svg?v=2" width="600">
-  </a>
-  <br>
-  <sub>Goal: fund the workforce to build automated GPU compatibility detection and passthrough setup for macOS.</sub>
-</p>
+---
+
+## 🙏 Credits
+
+This repository is a **fork of [osx-proxmox-next](https://github.com/lucid-fabrics/osx-proxmox-next), created by [Lucid Fabrics](https://github.com/lucid-fabrics)**. The wizard, the OpenCore automation, the SMBIOS generation, the CLI - that is their design and their code, and full credit for the project belongs to them.
+
+This fork only adds changes I need on my own Proxmox host, on top of their work. If the project helps you, support the original author: [Ko-fi](https://ko-fi.com/s/84fe857595) - [GitHub Sponsors](https://github.com/sponsors/lucid-fabrics) - [Buy Me a Coffee](https://buymeacoffee.com/lucidfabrics).
+
+**What this fork changes:**
+- The CPU core count in the wizard (step 4) is editable instead of a fixed auto-detected value, validated for the power-of-2 rule macOS needs and capped at the host CPU count
 
 ---
 
@@ -75,14 +69,7 @@ osx-proxmox-next replaces all of it with a 6-step wizard that runs on your Proxm
 | Post-install health check | Never | `osx-next-cli doctor --vmid <id>` |
 
 <p align="center">
-  <strong>If this already looks better than what you've been doing - ⭐ star the repo and help others find it.</strong><br><br>
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/sponsors/lucid-fabrics">
-    <img src="https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=github&logoColor=white" alt="Sponsor on GitHub">
-  </a>
+  <strong>If this already looks better than what you've been doing - ⭐ star the <a href="https://github.com/lucid-fabrics/osx-proxmox-next">original project</a> and help others find it.</strong>
 </p>
 
 ### Demo
@@ -124,17 +111,6 @@ osx-proxmox-next replaces all of it with a 6-step wizard that runs on your Proxm
 
 > **Note:** Dynamic wallpapers are known to not display correctly without GPU passthrough on VNC. Use a static wallpaper instead.
 
-<p align="center">
-  Built solo, maintained in free time. If it saved you an afternoon:<br><br>
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support on Ko-fi">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://buymeacoffee.com/lucidfabrics">
-    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee">
-  </a>
-</p>
-
 ---
 
 ## 🚀 Quick Start
@@ -142,19 +118,25 @@ osx-proxmox-next replaces all of it with a 6-step wizard that runs on your Proxm
 Run this on your Proxmox 9 host as root:
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/lucid-fabrics/osx-proxmox-next/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MinaLouisLeon/osx-proxmox-next/main/install.sh)"
 ```
 
-This clones the repo, sets up a Python venv, and launches the TUI wizard.
+This clones this repo, sets up a Python venv, and launches the TUI wizard.
 
-> Built solo and maintained in my free time. If it saves you an afternoon of `qm` commands, [a coffee helps](https://ko-fi.com/s/84fe857595) or a [coffee on BMC](https://buymeacoffee.com/lucidfabrics). ☕
+To try a branch before it lands on `main`, fetch the script from that branch and pass the branch name:
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MinaLouisLeon/osx-proxmox-next/<branch>/install.sh)" _ <branch>
+```
+
+> The installer empties `/root/osx-proxmox-next` before cloning. Set `OSX_NEXT_REPO_DIR=/root/somewhere-else` to install alongside an existing copy.
 
 ### 🐚 Bash Alternative
 
 Prefer a standalone bash script with no Python dependency?
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/lucid-fabrics/osx-proxmox-next/main/scripts/bash/osx-proxmox-next.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MinaLouisLeon/osx-proxmox-next/main/scripts/bash/osx-proxmox-next.sh)"
 ```
 
 Same VM creation logic (OpenCore + osrecovery + SMBIOS), whiptail menus, no venv needed. The advanced settings include the same **Unattended install (BETA)** toggle as the TUI.
@@ -654,9 +636,9 @@ Check it worked, inside the VM:
 sysctl -n kern.hv_vmm_present    # must print 0
 ```
 
-If it prints `1` the patch is not in effect and sign-in will fail. Releases that predate the fix for [#114](https://github.com/lucid-fabrics/osx-proxmox-next/issues/114) shipped only the second patch, so both OIDs ended up named `hv_vmm_present` and the real one still won. Rebuild the VM on the latest release.
+If it prints `1` the patch is not in effect and sign-in will fail. Releases that predate the upstream fix for issue #114 shipped only the second patch, so both OIDs ended up named `hv_vmm_present` and the real one still won. Rebuild the VM on the latest release.
 
-**Not officially verified.** Attestation is server-side and Apple can change it at any time, so results may vary. The `sysctl` check above tells you whether the patch itself is working; everything past that is up to Apple. If it works for you, consider sharing your experience on [Discord](https://discord.gg/Ub6TunHYre).
+**Not officially verified.** Attestation is server-side and Apple can change it at any time, so results may vary. The `sysctl` check above tells you whether the patch itself is working; everything past that is up to Apple. If it works for you, consider [opening an issue](https://github.com/MinaLouisLeon/osx-proxmox-next/issues) with your results.
 
 > `RestrictEvents.kext` with `revpatch=sbvmm` alone does **not** fix this - that only hides `kern.hv_vmm_present` from userspace. The kernel patch operates at the sysctl string table level, which is what Apple's attestation stack reads directly.
 
@@ -767,43 +749,8 @@ In the TUI, tick **Force fresh download (ignore cached ISO)** on the Review step
 
 - 🧩 **Multi-VM templates** - save and reuse configurations across VMs
 - 🔄 **Auto-update OpenCore** - detect and pull latest OpenCore releases
-- 🎮 **GPU passthrough wizard** - guided IOMMU + VFIO setup *(unlocks at $1000 raised - see badge above)*. Fund goal: pay the workforce to build automated GPU compatibility detection and passthrough setup for macOS.
+- 🎮 **GPU passthrough wizard** - guided IOMMU + VFIO setup with automated GPU compatibility detection
 
----
-
-## 💖 Supporters
-
-This project is free and open source. Sponsors keep it alive and shape what gets built next.
-
-<p align="center">
-  <a href="https://github.com/sponsors/lucid-fabrics">
-    <img src="https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=github&logoColor=white" alt="Sponsor on GitHub">
-  </a>
-  &nbsp;
-  <a href="https://buymeacoffee.com/lucidfabrics">
-    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee">
-  </a>
-  &nbsp;
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white" alt="Support on Ko-fi">
-  </a>
-  &nbsp;
-  <a href="https://discord.gg/Ub6TunHYre">
-    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white" alt="Join our Discord">
-  </a>
-</p>
-
-**Sponsors:**
-
-- ❤️ [SuperDooper](https://github.com/superdooper86) ($34 GH Sponsors Apr 18)
-- ❤️ Tim ($5 Ko-fi Jul 8)
-- ❤️ Wotao Yin ($10 Ko-fi Jun 27)
-- ❤️ Arketsu ($10 BMC Mar 14)
-- ❤️ RNDThoughts ($5 Ko-fi Feb 19)
-- ❤️ Anonymous ($20 Ko-fi Jun 29)
-- ❤️ 1 donor $10 BMC Jul 15
-
-_Want to join them? [Sponsor on GitHub](https://github.com/sponsors/lucid-fabrics)_
 ---
 
 ## ❓ FAQ
@@ -823,7 +770,7 @@ Yes, with manual host-side IOMMU setup. See [GPU Passthrough](#-gpu-passthrough)
 **Is running macOS in a VM legal?**
 This project is for testing, lab use, and learning. Apple's license terms govern where macOS may run; you are responsible for compliance in your region.
 
-More: [full FAQ in the docs](https://lucid-fabrics.github.io/osx-proxmox-next/docs/guides/faq).
+More: [full FAQ in the docs](docs/docs/guides/faq.md).
 
 ---
 
@@ -834,27 +781,6 @@ This project is for **testing, lab use, and learning**. Respect Apple licensing 
 ---
 
 <p align="center">
-  This project is built and maintained solo. No company, no team - just one dev who got tired of manual <code>qm</code> configs.<br>
-  If it saved you time, a coffee keeps it going:<br><br>
-  <a href="https://ko-fi.com/s/84fe857595">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/sponsors/lucid-fabrics">
-    <img src="https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?logo=github&logoColor=white" alt="Sponsor on GitHub">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://buymeacoffee.com/lucidfabrics">
-    <img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee">
-  </a>
-  <br><br>
-  ⭐ <a href="https://github.com/lucid-fabrics/osx-proxmox-next">Star this repo</a> to help others find it.
+  A fork of <a href="https://github.com/lucid-fabrics/osx-proxmox-next">lucid-fabrics/osx-proxmox-next</a> - all credit for the project goes to its original developer.<br>
+  ⭐ Star the original repo to help others find it.
 </p>
-
----
-
-## ⭐ Star History
-
-[![Star History Chart](https://raw.githubusercontent.com/lucid-fabrics/osx-proxmox-next/main/docs/static/star-history.svg)](https://github.com/lucid-fabrics/osx-proxmox-next/stargazers)
-
-Chart auto-regenerated from the GitHub stargazers API.
