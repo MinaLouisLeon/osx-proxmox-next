@@ -4,10 +4,20 @@ from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.widgets import Button, Checkbox, Input, ProgressBar, Static
 
-from ..defaults import DEFAULT_BRIDGE, DEFAULT_ISO_DIR, DEFAULT_MEMORY_MB, DEFAULT_STORAGE, CpuInfo
+from ..defaults import (
+    DEFAULT_BRIDGE,
+    DEFAULT_ISO_DIR,
+    DEFAULT_MEMORY_MB,
+    DEFAULT_STORAGE,
+    CpuInfo,
+    core_choices,
+    max_vm_cores,
+    recommended_cores,
+)
 from ..domain import DEFAULT_VMID, SUPPORTED_MACOS
 
 __all__ = [
+    "cores_hint_text",
     "compose_step1",
     "compose_step2",
     "compose_step3",
@@ -73,7 +83,7 @@ def compose_step2() -> ComposeResult:
                 with Container(id="edit_grid"):
                     yield Static("Name", classes="label")
                     yield Input(value="", id="edit_name", placeholder="leave blank to keep")
-                    yield Static("CPU Cores (auto-detected)", classes="label")
+                    yield Static("CPU Cores", classes="label")
                     yield Input(value="", id="edit_cores", placeholder="leave blank to keep")
                     yield Static("Memory MB", classes="label")
                     yield Input(value="", id="edit_memory", placeholder="leave blank to keep")
@@ -105,15 +115,24 @@ def compose_step3(storage_targets: list[str]) -> ComposeResult:
             yield Button("Exit", id="exit_btn_3")
 
 
-def _compose_step4_vm_fields() -> ComposeResult:
+def cores_hint_text(host_cores: int | None = None) -> str:
+    """One-line help under the CPU Cores field: what is allowed on this host."""
+    limit = host_cores if host_cores and host_cores > 0 else max_vm_cores()
+    allowed = ", ".join(str(n) for n in core_choices(limit))
+    return f"Editable - power of 2 only ({allowed}); host has {limit} logical CPUs"
+
+
+def _compose_step4_vm_fields(use_penryn: bool = False) -> ComposeResult:
     """Yield the basic VM configuration input grid."""
     with Container(id="config_grid"):
         yield Static("VMID", classes="label")
         yield Input(value=str(DEFAULT_VMID), id="vmid")
         yield Static("VM Name", classes="label")
         yield Input(value="", id="name")
-        yield Static("CPU Cores (auto-detected from this host)", classes="label")
-        yield Input(value="8", id="cores", disabled=True)
+        yield Static("CPU Cores", classes="label")
+        yield Input(value=str(recommended_cores(use_penryn)), id="cores")
+        yield Static("", classes="label")
+        yield Static(cores_hint_text(), id="cores_hint", classes="field_hint")
         yield Static("Memory MB", classes="label")
         yield Input(value=str(DEFAULT_MEMORY_MB), id="memory")
         yield Static("Disk GB", classes="label")
@@ -185,7 +204,7 @@ def _compose_step4_unattended() -> ComposeResult:
 def compose_step4(cpu_info: CpuInfo) -> ComposeResult:
     with Vertical(id="step4", classes="step_container step_hidden"):
         yield Static("VM Configuration")
-        yield from _compose_step4_vm_fields()
+        yield from _compose_step4_vm_fields(cpu_info.needs_penryn)
         yield from _compose_step4_apple_services()
         yield from _compose_step4_cpu_network(cpu_info)
         yield from _compose_step4_unattended()

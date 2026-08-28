@@ -2,7 +2,14 @@ from pathlib import Path
 
 from osx_proxmox_next.defaults import (
     DEFAULT_ISO_DIR,
+    PENRYN_CORES,
     CpuInfo,
+    core_choices,
+    host_cpu_count,
+    is_power_of_2,
+    max_vm_cores,
+    recommended_cores,
+    round_down_power_of_2,
     _resolve_iso_path,
     _xeon_hedt_cpu_model,
     default_disk_gb,
@@ -39,6 +46,50 @@ def test_detect_cpu_cores_low(monkeypatch):
 def test_detect_cpu_cores_none(monkeypatch):
     monkeypatch.setattr("os.cpu_count", lambda: None)
     assert detect_cpu_cores() == 4
+
+
+def test_is_power_of_2() -> None:
+    assert [n for n in range(1, 20) if is_power_of_2(n)] == [1, 2, 4, 8, 16]
+    assert not is_power_of_2(0)
+
+
+def test_round_down_power_of_2_never_below_two() -> None:
+    assert round_down_power_of_2(12) == 8
+    assert round_down_power_of_2(16) == 16
+    assert round_down_power_of_2(1) == 2
+
+
+def test_host_cpu_count_falls_back(monkeypatch) -> None:
+    monkeypatch.setattr("os.cpu_count", lambda: None)
+    assert host_cpu_count() == 4
+
+
+def test_max_vm_cores_is_the_host_cpu_count(monkeypatch) -> None:
+    monkeypatch.setattr("os.cpu_count", lambda: 12)
+    assert max_vm_cores() == 12
+
+
+def test_core_choices_are_powers_of_two_within_the_limit() -> None:
+    assert core_choices(16) == [2, 4, 8, 16]
+    assert core_choices(12) == [2, 4, 8]
+    # A single-CPU host still gets the macOS minimum offered.
+    assert core_choices(1) == [2]
+
+
+def test_core_choices_defaults_to_host(monkeypatch) -> None:
+    monkeypatch.setattr("os.cpu_count", lambda: 8)
+    assert core_choices() == [2, 4, 8]
+
+
+def test_recommended_cores_honours_penryn(monkeypatch) -> None:
+    monkeypatch.setattr("os.cpu_count", lambda: 32)
+    assert recommended_cores() == 16
+    assert recommended_cores(use_penryn=True) == PENRYN_CORES
+
+
+def test_recommended_cores_never_exceeds_a_tiny_host(monkeypatch) -> None:
+    monkeypatch.setattr("os.cpu_count", lambda: 2)
+    assert recommended_cores(use_penryn=True) == 2
 
 
 def test_detect_memory_from_meminfo(monkeypatch, tmp_path):

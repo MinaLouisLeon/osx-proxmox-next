@@ -22,6 +22,10 @@ class WizardState:
     vmid: int = DEFAULT_VMID
     name: str = ""
     cores: int = 8
+    # Last core count the wizard filled in itself, and whether the user has
+    # since typed their own. Auto-fills never overwrite a manual choice.
+    cores_auto: str = ""
+    cores_user_set: bool = False
     memory_mb: int = 16384
     disk_gb: int = 128
     bridge: str = "vmbr0"

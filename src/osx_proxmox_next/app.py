@@ -19,10 +19,11 @@ from ._wizard_mixin import WizardStepsMixin
 from .assets import required_assets
 from .defaults import (
     DEFAULT_ISO_DIR,
-    detect_cpu_cores,
+    PENRYN_CORES,
     detect_cpu_info,
     detect_iso_storage,
     detect_net_model,
+    recommended_cores,
 )
 from .domain import PlanStep, SUPPORTED_MACOS, validate_config
 from .executor import StepResult
@@ -64,6 +65,7 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
         self.state = WizardState()
         self._cpu_info = detect_cpu_info()
         self.state.use_penryn = self._cpu_info.needs_penryn
+        self.state.cores_auto = str(recommended_cores(self.state.use_penryn))
         self.state.net_model = detect_net_model(self._cpu_info)
         self.state.storage_targets = self._detect_storage_targets()
         self.state.iso_dirs = detect_iso_storage()
@@ -139,8 +141,10 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
                 handler()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        target_ids = {"vmid", "name", "memory", "disk", "bridge", "storage_input", "installer_path"}
+        target_ids = {"vmid", "name", "cores", "memory", "disk", "bridge", "storage_input", "installer_path"}
         if (event.input.id or "") in target_ids:
+            if event.input.id == "cores":
+                self._note_cores_edit(event.value)
             self._validate_form(quiet=True)
         if event.input.id == "manage_vmid":
             self._validate_manage_vmid()
@@ -158,14 +162,15 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
             self._toggle_apple_services_fields()
         if event.checkbox.id == "penryn_cb":
             self.state.use_penryn = event.checkbox.value
+            hint = self.query_one("#penryn_hint", Static)
+            if event.checkbox.value:
+                self._suggest_cores(PENRYN_CORES)
+                hint.remove_class("step_hidden")
+            else:
+                self._suggest_cores(recommended_cores())
+                hint.add_class("step_hidden")
         if event.checkbox.id == "unattended_cb":
             self.state.unattended = event.checkbox.value
-            if event.checkbox.value:
-                self.query_one("#cores", Input).value = "4"
-                self.query_one("#penryn_hint", Static).remove_class("step_hidden")
-            else:
-                self.query_one("#cores", Input).value = str(detect_cpu_cores())
-                self.query_one("#penryn_hint", Static).add_class("step_hidden")
         if event.checkbox.id == "e1000_cb":
             self.state.net_model = "e1000-82545em" if event.checkbox.value else "vmxnet3"
             if event.checkbox.value:

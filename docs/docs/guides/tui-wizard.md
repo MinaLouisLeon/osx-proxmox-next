@@ -62,7 +62,7 @@ Review and edit VM settings with auto-filled defaults based on your hardware.
 |-------|---------|-------------|
 | VMID | `900` | Must be unique, 100-999999 |
 | Name | `macos-{version}` | VM display name |
-| CPU Cores | Auto-detected | Must be power of 2 (2, 4, 8, 16) |
+| CPU Cores | Auto-detected (editable) | Power of 2 (2, 4, 8, 16), at least 2, never more than the host's logical CPU count |
 | Memory (MB) | Auto-detected | Minimum 4096 MB |
 | Disk (GB) | Varies by version (80-160) | Minimum 64 GB |
 | Network Bridge | `vmbr0` | Proxmox bridge interface |
@@ -77,8 +77,10 @@ Additional options available in this step:
 - **Existing UUID** -- enter a UUID to preserve identity for re-runs
 
 :::warning
-macOS requires power-of-2 CPU core counts. Non-power-of-2 values (6, 12) can cause the kernel to hang at the Apple logo.
+macOS requires power-of-2 CPU core counts. Non-power-of-2 values (6, 12) can cause the kernel to hang at the Apple logo, so the wizard rejects them and suggests the nearest safe value.
 :::
+
+The core count starts from host detection (half the logical CPUs, rounded down to a power of 2; 4 when Penryn mode is on), but you can type your own. Once you edit it, auto-detection leaves it alone -- **Suggest Defaults** puts the detected value back.
 
 ## Step 5: Dry Run
 

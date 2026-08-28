@@ -11,16 +11,17 @@ from .defaults import (
     DEFAULT_ISO_DIR,
     DEFAULT_STORAGE,
     default_disk_gb,
-    detect_cpu_cores,
     detect_cpu_info,
     detect_memory_mb,
+    max_vm_cores,
     max_vm_memory_mb,
+    recommended_cores,
 )
 from .domain import SUPPORTED_MACOS, VmConfig
 from .forms import validate_form_values, build_vm_config_from_values
 from .forms.form_handler import FormValues
 from .planner import build_plan
-from .screens import build_config_summary_text
+from .screens import build_config_summary_text, cores_hint_text
 from .services import run_download_worker
 from .smbios import resolve_smbios
 
@@ -50,7 +51,7 @@ class WizardStepsMixin:
         macos = self.state.selected_os or "sequoia"  # type: ignore[attr-defined]
         self._set_input_value("#vmid", str(self._detect_next_vmid()))  # type: ignore[attr-defined]
         self._set_input_value("#name", f"macos-{macos}")  # type: ignore[attr-defined]
-        self._set_input_value("#cores", str(detect_cpu_cores()))  # type: ignore[attr-defined]
+        self._suggest_cores(recommended_cores(self.state.use_penryn))  # type: ignore[attr-defined]
         self._set_input_value("#memory", str(detect_memory_mb()))  # type: ignore[attr-defined]
         self._set_input_value("#disk", str(default_disk_gb(macos)))  # type: ignore[attr-defined]
         self._set_input_value("#bridge", DEFAULT_BRIDGE)  # type: ignore[attr-defined]
@@ -61,9 +62,33 @@ class WizardStepsMixin:
         )
         self._set_input_value("#iso_dir", self.state.selected_iso_dir)  # type: ignore[attr-defined]
         self._set_input_value("#installer_path", "")  # type: ignore[attr-defined]
+        self._update_cores_hint()  # type: ignore[attr-defined]
         self._update_smbios_preview()  # type: ignore[attr-defined]
 
+    def _suggest_cores(self, cores: int) -> None:
+        """Fill the CPU Cores field with an auto-detected value.
+
+        A value the user typed themselves is never overwritten - detection
+        only supplies the starting point.
+        """
+        if self.state.cores_user_set:  # type: ignore[attr-defined]
+            return
+        value = str(cores)
+        self.state.cores_auto = value  # type: ignore[attr-defined]
+        self._set_input_value("#cores", value)  # type: ignore[attr-defined]
+
+    def _note_cores_edit(self, value: str) -> None:
+        """Remember that the core count came from the user, not detection."""
+        if value.strip() != self.state.cores_auto:  # type: ignore[attr-defined]
+            self.state.cores_user_set = True  # type: ignore[attr-defined]
+
+    def _update_cores_hint(self) -> None:
+        self.query_one("#cores_hint", Static).update(cores_hint_text(max_vm_cores()))
+
     def _apply_host_defaults(self) -> None:
+        # "Suggest Defaults" is an explicit request for detected values, so it
+        # is the one path allowed to discard a manual core count.
+        self.state.cores_user_set = False  # type: ignore[attr-defined]
         self._fill_form(storage_fallback=self.state.selected_storage or DEFAULT_STORAGE)  # type: ignore[attr-defined]
         if not self.state.smbios:  # type: ignore[attr-defined]
             macos = self.state.selected_os or "sequoia"  # type: ignore[attr-defined]
@@ -89,8 +114,12 @@ class WizardStepsMixin:
 
     def _validate_form(self, quiet: bool = False) -> bool:
         values = self._read_form_values()  # type: ignore[attr-defined]
-        errors = validate_form_values(values, host_memory_limit_mb=max_vm_memory_mb())
-        for field_id in ("vmid", "name", "memory", "disk", "bridge", "vlan", "storage_input"):
+        errors = validate_form_values(
+            values,
+            host_memory_limit_mb=max_vm_memory_mb(),
+            host_core_limit=max_vm_cores(),
+        )
+        for field_id in ("vmid", "name", "cores", "memory", "disk", "bridge", "vlan", "storage_input"):
             widget = self.query_one(f"#{field_id}", Input)
             (widget.add_class if field_id in errors else widget.remove_class)("invalid")
         self.state.form_errors = errors  # type: ignore[attr-defined]
