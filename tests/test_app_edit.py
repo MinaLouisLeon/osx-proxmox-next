@@ -782,3 +782,104 @@ def test_edit_success_resets_the_passthrough_controls(monkeypatch) -> None:
             assert app.query_one("#edit_usb_manual", Input).value == ""
 
     asyncio.run(_run())
+
+
+# ── Panel scrolling ──────────────────────────────────────────────────
+#
+# Textual's Vertical/Container default to `height: 1fr; overflow: hidden`, so a
+# panel that outgrows the viewport clips its own tail rather than growing. #body
+# can only scroll content taller than itself, so a clipped panel makes the
+# fields below the fold unreachable with no scrollbar to say so.
+
+
+def _short_terminal() -> tuple[int, int]:
+    """A terminal too short for the Edit VM form, which is the whole point."""
+    return (100, 24)
+
+
+def test_stacking_panels_size_to_their_content() -> None:
+    """These three clipped their overflow instead of growing #body."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_short_terminal()) as pilot:
+            await pilot.pause()
+            for selector in ("#create_panel", "#edit_form", "#apple_services_fields"):
+                height = app.query_one(selector).styles.height
+                assert height is not None and height.is_auto, selector
+
+    asyncio.run(_run())
+
+
+def test_body_is_the_scrolling_surface() -> None:
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_short_terminal()) as pilot:
+            await pilot.pause()
+            body = app.query_one("#body")
+            assert body.styles.overflow_y == "auto"
+            assert body.allow_vertical_scroll
+
+    asyncio.run(_run())
+
+
+def test_edit_vm_form_can_be_scrolled_to_the_bottom() -> None:
+    """The reported bug: the fields below the fold could not be reached."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_short_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            body = app.query_one("#body")
+            # The open form is taller than this terminal, so there is something
+            # to scroll -- before the fix the panel was clipped to the viewport
+            # and max_scroll_y stayed 0.
+            assert body.max_scroll_y > 0
+
+            body.scroll_end(animate=False)
+            await pilot.pause()
+            assert body.scroll_offset.y > 0
+
+    asyncio.run(_run())
+
+
+def test_page_down_binding_scrolls_the_body() -> None:
+    """Mouse reporting is often off over SSH, so the keyboard has to work."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_short_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            body = app.query_one("#body")
+            assert body.scroll_offset.y == 0
+
+            app.action_page_body_down()
+            await pilot.pause()
+            scrolled = body.scroll_offset.y
+            assert scrolled > 0
+
+            app.action_page_body_up()
+            await pilot.pause()
+            assert body.scroll_offset.y < scrolled
+
+    asyncio.run(_run())
+
+
+def test_apply_button_is_reachable_once_scrolled() -> None:
+    """Scrolling is only a fix if the control at the bottom becomes usable."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_short_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            button = app.query_one("#edit_apply_btn", Button)
+            app.query_one("#body").scroll_to_widget(button, animate=False)
+            await pilot.pause()
+            assert button.region.height > 0  # actually laid out, not clipped away
+
+    asyncio.run(_run())
