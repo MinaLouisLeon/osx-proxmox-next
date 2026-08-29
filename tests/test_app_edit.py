@@ -5,12 +5,13 @@ import asyncio
 import time
 from pathlib import Path
 
-from textual.widgets import Button, Checkbox, Input, Static
+from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from osx_proxmox_next import _edit_mixin as edit_mixin_module
 from osx_proxmox_next.app import NextApp
 from osx_proxmox_next.executor import ApplyResult
 from osx_proxmox_next.rollback import RollbackSnapshot
+from osx_proxmox_next.screens import VERBOSE_BOOT_KEEP
 from osx_proxmox_next.services import edit_service
 from osx_proxmox_next.services import VmInfo
 
@@ -377,3 +378,140 @@ def test_wizard_state_edit_defaults() -> None:
     assert state.edit_ok is False
     assert state.edit_log == []
     assert state.edit_start_after is False
+
+
+# ── Verbose boot on an existing VM ───────────────────────────────────
+
+
+def test_edit_verbose_boot_defaults_to_keeping_the_current_setting() -> None:
+    """Opening the panel must not arm a boot-args rewrite."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            assert app.query_one("#edit_verbose_boot", Select).value == VERBOSE_BOOT_KEEP
+            assert app._read_edit_verbose_boot() is None
+            # "Keep" alone is not a change, so Apply stays disabled.
+            assert app.query_one("#edit_apply_btn", Button).disabled is True
+
+    asyncio.run(_run())
+
+
+def test_edit_verbose_boot_selection_maps_to_the_tri_state() -> None:
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            select = app.query_one("#edit_verbose_boot", Select)
+            for value, expected in (("on", True), ("off", False), (VERBOSE_BOOT_KEEP, None)):
+                select.value = value
+                await pilot.pause()
+                assert app._read_edit_verbose_boot() is expected, value
+
+    asyncio.run(_run())
+
+
+def test_edit_verbose_boot_alone_enables_apply() -> None:
+    """Every other field is blank, but picking On is still a real change."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            app.query_one("#edit_verbose_boot", Select).value = "off"
+            await pilot.pause()
+            assert app.query_one("#edit_apply_btn", Button).disabled is False
+
+    asyncio.run(_run())
+
+
+def test_edit_verbose_boot_reaches_the_edit_plan(monkeypatch) -> None:
+    """The select is what puts the boot-args step into the plan."""
+    captured: list = []
+
+    monkeypatch.setattr(
+        edit_mixin_module, "fetch_vm_info",
+        lambda vmid, adapter=None: VmInfo(vmid=vmid, name="test-vm", status="running", config_raw=""),
+    )
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+
+    def fake_apply_plan(steps, execute=False, on_step=None, adapter=None):
+        captured.extend(steps)
+        return ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log"))
+
+    monkeypatch.setattr(edit_service, "apply_plan", fake_apply_plan)
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            app.query_one("#edit_verbose_boot", Select).value = "on"
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            assert app.state.edit_ok is True
+            titles = [s.title for s in captured]
+            assert "Turn verbose boot on (OpenCore boot-args)" in titles
+            # A successful apply resets the select, so a second Apply is not a
+            # silent re-run of the same boot-args rewrite.
+            assert app.query_one("#edit_verbose_boot", Select).value == VERBOSE_BOOT_KEEP
+            assert app.query_one("#edit_apply_btn", Button).disabled is True
+
+    asyncio.run(_run())
+
+
+def test_edit_other_fields_leave_boot_args_alone(monkeypatch) -> None:
+    """Changing only the core count must not mount and rewrite the OC disk."""
+    captured: list = []
+
+    monkeypatch.setattr(
+        edit_mixin_module, "fetch_vm_info",
+        lambda vmid, adapter=None: VmInfo(vmid=vmid, name="test-vm", status="running", config_raw=""),
+    )
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+
+    def fake_apply_plan(steps, execute=False, on_step=None, adapter=None):
+        captured.extend(steps)
+        return ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log"))
+
+    monkeypatch.setattr(edit_service, "apply_plan", fake_apply_plan)
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            await pilot.pause()
+            app.query_one("#edit_cores", Input).value = "4"
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            assert not any("verbose boot" in s.title for s in captured)
+
+    asyncio.run(_run())

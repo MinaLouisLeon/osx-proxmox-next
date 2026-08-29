@@ -6,11 +6,12 @@ import traceback
 from pathlib import Path
 from threading import Thread
 
-from textual.widgets import Button, Checkbox, Input, Static
+from textual.widgets import Button, Checkbox, Input, Select, Static
 
 from .domain import MIN_VMID, MAX_VMID, EditChanges, PlanStep, validate_edit_changes
 from .executor import StepResult
 from .rollback import create_snapshot
+from .screens import VERBOSE_BOOT_KEEP
 from .services import run_edit_worker, fetch_vm_info, get_proxmox_adapter
 
 log = logging.getLogger(__name__)
@@ -39,8 +40,15 @@ class EditModeMixin:
         has_any = any(
             self.query_one(sel, Input).value.strip()
             for sel in ("#edit_name", "#edit_cores", "#edit_memory", "#edit_bridge", "#edit_disk_add")
-        )
+        ) or self._read_edit_verbose_boot() is not None
         self.query_one("#edit_apply_btn", Button).disabled = not has_any
+
+    def _read_edit_verbose_boot(self) -> bool | None:
+        """Return the requested verbose-boot state, or None to leave it alone."""
+        value = self.query_one("#edit_verbose_boot", Select).value
+        if value == VERBOSE_BOOT_KEEP:
+            return None
+        return value == "on"
 
     def _run_edit(self) -> None:
         if self.state.edit_running:  # type: ignore[attr-defined]
@@ -73,6 +81,7 @@ class EditModeMixin:
             disk_gb_add=_opt_int("#edit_disk_add"),
             nic_model=_opt_str("#edit_nic_model"),
             disk_name=_opt_str("#edit_disk_name") or "virtio0",
+            verbose_boot=self._read_edit_verbose_boot(),
         )
 
         issues = validate_edit_changes(vmid, changes)
@@ -141,6 +150,7 @@ class EditModeMixin:
             # Clear form fields so re-clicking Apply doesn't re-apply (disk resize is non-idempotent)
             for sel in ("#edit_name", "#edit_cores", "#edit_memory", "#edit_bridge", "#edit_disk_add"):
                 self.query_one(sel, Input).value = ""
+            self.query_one("#edit_verbose_boot", Select).value = VERBOSE_BOOT_KEEP
         self._validate_edit_form()
         result_box = self.query_one("#edit_result", Static)
         result_box.remove_class("hidden")

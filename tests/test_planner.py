@@ -982,3 +982,108 @@ def test_apple_services_net0_keeps_vlan_tag():
     net0 = mac_step.argv[mac_step.argv.index("--net0") + 1]
     assert "tag=30" in net0
     assert "macaddr=" in net0
+
+
+# ── Verbose boot on an existing VM ───────────────────────────────────
+
+
+def _verbose_edit_step(enabled: bool):
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(verbose_boot=enabled))
+    return next(s for s in steps if "verbose boot" in s.title)
+
+
+def test_edit_plan_verbose_boot_on_adds_v_to_boot_args():
+    from osx_proxmox_next.script_renderer import boot_args_value
+    step = _verbose_edit_step(True)
+    assert step.title == "Turn verbose boot on (OpenCore boot-args)"
+    assert f'["boot-args"]="{boot_args_value(True)}"' in step.command
+
+
+def test_edit_plan_verbose_boot_off_keeps_the_base_boot_args():
+    from osx_proxmox_next.script_renderer import BOOT_ARGS_BASE, boot_args_value
+    step = _verbose_edit_step(False)
+    assert step.title == "Turn verbose boot off (OpenCore boot-args)"
+    assert f'["boot-args"]="{boot_args_value(False)}"' in step.command
+    # -v goes, the RestrictEvents/kernel-symbol arguments stay.
+    assert BOOT_ARGS_BASE in step.command
+    assert f"{BOOT_ARGS_BASE} -v" not in step.command
+
+
+def test_edit_plan_verbose_boot_reasserts_the_nvram_delete_entry():
+    """NVRAM/Add is ignored when the variable already exists in firmware."""
+    from osx_proxmox_next.script_renderer import APPLE_BOOT_VAR_GUID
+    command = _verbose_edit_step(True).command
+    assert APPLE_BOOT_VAR_GUID in command
+    assert '"Delete"' in command
+    assert '"boot-args" in nd or nd.append("boot-args")' in command
+
+
+def test_edit_plan_verbose_boot_mounts_the_opencore_disk_and_cleans_up():
+    command = _verbose_edit_step(True).command
+    assert "ide0" in command                 # the OpenCore volume
+    assert "losetup -fP --show" in command
+    assert "trap " in command and "losetup -d $OC_LOOP" in command
+    assert command.rstrip("'").endswith("&& sync")
+
+
+def test_edit_plan_verbose_boot_runs_after_the_vm_is_stopped():
+    """The disk cannot be safely mounted while the VM has it open."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(verbose_boot=True), start_after=True)
+    titles = [s.title for s in steps]
+    assert titles.index("Stop VM (if running)") < titles.index(
+        "Turn verbose boot on (OpenCore boot-args)")
+    assert titles[-1] == "Start VM"
+
+
+def test_edit_plan_leaves_boot_args_alone_when_verbose_boot_is_none():
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(cores=4))
+    assert not any("verbose boot" in s.title for s in steps)
+    assert build_edit_plan(900, EditChanges()) == []
+
+
+def test_edit_plan_verbose_boot_false_is_not_mistaken_for_no_change():
+    """False means "turn it off"; only None means "leave it alone"."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    assert build_edit_plan(900, EditChanges(verbose_boot=False)) != []
+
+
+def test_verbose_boot_fragment_round_trips_a_real_plist(tmp_path, monkeypatch):
+    """The inline python actually parses and rewrites an OpenCore config.plist."""
+    import plistlib
+    from osx_proxmox_next.planner import _set_verbose_boot_script
+    from osx_proxmox_next.script_renderer import APPLE_BOOT_VAR_GUID, boot_args_value
+
+    oc = tmp_path / "EFI" / "OC"
+    oc.mkdir(parents=True)
+    plist = oc / "config.plist"
+    with open(plist, "wb") as fh:
+        plistlib.dump({"NVRAM": {"Add": {APPLE_BOOT_VAR_GUID: {"boot-args": "old"}}}}, fh)
+    monkeypatch.setenv("OC_MNT", str(tmp_path))
+
+    def _fragment(enabled: bool) -> str:
+        script = _set_verbose_boot_script("900", enabled)
+        return script.split("python3 -c '", 1)[1].split("' && sed -i", 1)[0]
+
+    for enabled in (True, False, True):
+        exec(compile(_fragment(enabled), "<fragment>", "exec"), {})
+        with open(plist, "rb") as fh:
+            written = plistlib.load(fh)["NVRAM"]
+        assert written["Add"][APPLE_BOOT_VAR_GUID]["boot-args"] == boot_args_value(enabled)
+        # Re-running must not pile up duplicate Delete entries.
+        assert written["Delete"][APPLE_BOOT_VAR_GUID] == ["boot-args"]
+
+
+def test_restore_picker_timeout_still_patches_only_the_timeout():
+    """The shared mount helper did not change what post-install writes."""
+    from osx_proxmox_next.planner import _restore_picker_timeout_script
+    from osx_proxmox_next.script_renderer import PICKER_TIMEOUT_INSTALLED
+    command = _restore_picker_timeout_script("900")
+    assert f'["Timeout"]={PICKER_TIMEOUT_INSTALLED}' in command
+    assert "boot-args" not in command

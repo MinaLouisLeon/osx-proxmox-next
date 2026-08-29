@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Checkbox, Input, ProgressBar, Static
+from textual.widgets import Button, Checkbox, Input, ProgressBar, Select, Static
 
 from ..defaults import (
     DEFAULT_BRIDGE,
@@ -16,7 +16,21 @@ from ..defaults import (
 )
 from ..domain import DEFAULT_VMID, SUPPORTED_MACOS
 
+# Every field in the Edit VM panel is leave-blank-to-keep, and the panel never
+# loads the VM's current settings, so a plain checkbox could not say "don't
+# touch it" -- unticked would be indistinguishable from "turn it off". Rewriting
+# boot-args means mounting the VM's OpenCore disk, so that distinction has to
+# survive: keeping is the default and costs nothing.
+VERBOSE_BOOT_KEEP = "keep"
+VERBOSE_BOOT_EDIT_CHOICES = [
+    ("Keep unchanged", VERBOSE_BOOT_KEEP),
+    ("Enable (-v)", "on"),
+    ("Disable", "off"),
+]
+
 __all__ = [
+    "VERBOSE_BOOT_EDIT_CHOICES",
+    "VERBOSE_BOOT_KEEP",
     "cores_hint_text",
     "compose_step1",
     "compose_step2",
@@ -95,6 +109,13 @@ def compose_step2() -> ComposeResult:
                     yield Input(value="", id="edit_disk_add", placeholder="GB to add, e.g. 64")
                     yield Static("Disk Name", classes="label")
                     yield Input(value="", id="edit_disk_name", placeholder="leave blank for virtio0")
+                    yield Static("Verbose Boot", classes="label")
+                    yield Select(
+                        VERBOSE_BOOT_EDIT_CHOICES,
+                        value=VERBOSE_BOOT_KEEP,
+                        allow_blank=False,
+                        id="edit_verbose_boot",
+                    )
                 with Horizontal(classes="action_row"):
                     yield Checkbox("Start VM after", value=False, id="edit_start_after_cb")
                     yield Button("Apply Changes", id="edit_apply_btn", disabled=True)
@@ -189,6 +210,21 @@ def _compose_step4_apple_services() -> ComposeResult:
         yield Input(value="", id="custom_mac", placeholder="Auto-generated if empty")
 
 
+def _compose_step4_verbose_boot() -> ComposeResult:
+    """Yield the verbose-boot checkbox with its hint."""
+    with Horizontal(classes="action_row"):
+        yield Checkbox(
+            "Verbose boot (-v) - show the kernel log instead of the Apple logo",
+            id="verbose_boot_cb",
+        )
+    yield Static(
+        "Adds -v to OpenCore's boot-args. Leave it off for a normal-looking boot; "
+        "turn it on to see where a boot hangs. You can flip it later on an "
+        "installed VM from Manage > Edit VM.",
+        id="verbose_boot_hint", classes="hint",
+    )
+
+
 def _compose_step4_unattended() -> ComposeResult:
     """Yield the unattended-install (beta) checkbox with its warning hint."""
     with Horizontal(classes="action_row"):
@@ -207,6 +243,7 @@ def compose_step4(cpu_info: CpuInfo) -> ComposeResult:
         yield from _compose_step4_vm_fields(cpu_info.needs_penryn)
         yield from _compose_step4_apple_services()
         yield from _compose_step4_cpu_network(cpu_info)
+        yield from _compose_step4_verbose_boot()
         yield from _compose_step4_unattended()
         yield Static("", id="form_errors")
         with Horizontal(classes="action_row"):

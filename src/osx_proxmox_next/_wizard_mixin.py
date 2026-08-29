@@ -156,6 +156,7 @@ class WizardStepsMixin:
             selected_os=st.selected_os,
             apple_services=st.apple_services,
             use_penryn=st.use_penryn,
+            verbose_boot=st.verbose_boot,
             net_model=st.net_model,
             smbios=st.smbios,
         )

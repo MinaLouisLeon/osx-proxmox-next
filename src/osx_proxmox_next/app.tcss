@@ -49,6 +49,19 @@ Input {
 Input:focus { border: tall #2ec27e; background: #1a2c3f; }
 .invalid { border: tall #d44f4f; background: #2a1717; }
 
+/* The Verbose Boot select sits in the Edit VM grid next to plain Inputs, so it
+   has to carry their height and palette rather than the Textual defaults. */
+Select {
+    height: 3;
+    width: 100%;
+}
+Select > SelectCurrent {
+    color: #f6f8fa;
+    background: #162433;
+    border: tall #2f6fa2;
+}
+Select:focus > SelectCurrent { border: tall #2ec27e; background: #1a2c3f; }
+
 #preflight_checks {
     background: #0d1722;
     border: tall #1f4f7a;

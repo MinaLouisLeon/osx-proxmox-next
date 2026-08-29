@@ -9,10 +9,12 @@ from .defaults import CpuInfo, detect_cpu_info
 from .domain import SUPPORTED_MACOS, VmConfig, PlanStep, EditChanges, validate_config
 from .infrastructure import ProxmoxAdapter
 from .script_renderer import (
+    APPLE_BOOT_VAR_GUID,
     PICKER_TIMEOUT_INSTALLED,
     _APPLE_OSK,
     _build_oc_disk_script,
     _partprobe_retry_snippet,
+    boot_args_value,
 )
 from .smbios import generate_mac, generate_smbios, generate_vmgenid
 from .smbios_planner import (
@@ -379,12 +381,15 @@ def build_post_install_plan(vmid: int) -> list[PlanStep]:
     ]
 
 
-def _restore_picker_timeout_script(vid: str) -> str:
-    """Return bash that puts the OpenCore picker back to auto-boot.
+def _oc_config_plist_script(vid: str, mutation: str, message: str) -> str:
+    """Return bash that rewrites config.plist on VM *vid*'s OpenCore disk.
 
-    The disk is built with Timeout=0 so a half-finished install can never
-    auto-boot recovery. Once recovery is detached there is only one sane entry
-    left, so auto-boot is safe again and the VM can start unattended.
+    Mounts the ESP of the ide0 volume, applies *mutation* -- an inline python
+    fragment that edits the loaded plist, bound to ``c`` -- writes it back, and
+    unmounts on the way out. *message* goes to stderr so the step log records
+    what actually changed.
+
+    The VM must be stopped: both callers plan a stop step ahead of this one.
     """
     q = shquote(vid)
     return (
@@ -406,9 +411,9 @@ def _restore_picker_timeout_script(vid: str) -> str:
         "import plistlib, os, sys; "
         "p=os.environ[\"OC_MNT\"]+\"/EFI/OC/config.plist\"; "
         "f=open(p,\"rb\"); c=plistlib.load(f); f.close(); "
-        f"c[\"Misc\"][\"Boot\"][\"Timeout\"]={PICKER_TIMEOUT_INSTALLED}; "
+        + mutation +
         "f=open(p,\"wb\"); plistlib.dump(c,f); f.close(); "
-        f"sys.stderr.write(\"picker timeout restored to {PICKER_TIMEOUT_INSTALLED}s\\n\")' && "
+        f"sys.stderr.write(\"{message}\\n\")' && "
         # plistlib emits self-closing tags that OpenCore's OcXmlLib rejects
         "sed -i 's|<array/>|<array></array>|g; s|<dict/>|<dict></dict>|g; "
         "s|<data/>|<data></data>|g' $OC_MNT/EFI/OC/config.plist && "
@@ -416,6 +421,41 @@ def _restore_picker_timeout_script(vid: str) -> str:
     )
 
 
+def _restore_picker_timeout_script(vid: str) -> str:
+    """Return bash that puts the OpenCore picker back to auto-boot.
+
+    The disk is built with Timeout=0 so a half-finished install can never
+    auto-boot recovery. Once recovery is detached there is only one sane entry
+    left, so auto-boot is safe again and the VM can start unattended.
+    """
+    return _oc_config_plist_script(
+        vid,
+        f"c[\"Misc\"][\"Boot\"][\"Timeout\"]={PICKER_TIMEOUT_INSTALLED}; ",
+        f"picker timeout restored to {PICKER_TIMEOUT_INSTALLED}s",
+    )
+
+
+def _set_verbose_boot_script(vid: str, enabled: bool) -> str:
+    """Return bash that turns verbose boot on or off on an existing VM.
+
+    Rewrites boot-args on the VM's OpenCore disk, keeping the base arguments
+    and only adding or dropping ``-v`` -- the rest of the string configures
+    RestrictEvents and kernel symbols and must not be lost to a debug toggle.
+
+    NVRAM/Delete is re-asserted for boot-args at the same time. NVRAM/Add is
+    ignored when the variable already exists in firmware, so on a VM whose
+    OpenCore image predates that entry the new boot-args would be written to
+    the plist and then never actually take effect.
+    """
+    boot_args = boot_args_value(enabled)
+    mutation = (
+        "nv=c.setdefault(\"NVRAM\",{}); "
+        f"nv.setdefault(\"Add\",{{}}).setdefault(\"{APPLE_BOOT_VAR_GUID}\",{{}})"
+        f"[\"boot-args\"]=\"{boot_args}\"; "
+        f"nd=nv.setdefault(\"Delete\",{{}}).setdefault(\"{APPLE_BOOT_VAR_GUID}\",[]); "
+        "\"boot-args\" in nd or nd.append(\"boot-args\"); "
+    )
+    return _oc_config_plist_script(vid, mutation, f"boot-args set to {boot_args}")
 
 
 def _smbios_steps(config: VmConfig, vmid: str) -> list[PlanStep]:
@@ -525,7 +565,8 @@ def build_edit_plan(
     then optionally starts the VM again.  *start_after* is False by default
     so the caller controls when the VM comes back up.
     """
-    if not any([changes.name, changes.cores, changes.memory_mb, changes.bridge, changes.disk_gb_add]):
+    if not any([changes.name, changes.cores, changes.memory_mb, changes.bridge,
+                changes.disk_gb_add, changes.verbose_boot is not None]):
         return []
     vid = str(vmid)
     steps: list[PlanStep] = [
@@ -562,6 +603,12 @@ def build_edit_plan(
             title=f"Extend {changes.disk_name} by {changes.disk_gb_add} GB",
             argv=["qm", "resize", vid, changes.disk_name, f"+{changes.disk_gb_add}G"],
             risk="action",
+        ))
+    if changes.verbose_boot is not None:
+        state = "on" if changes.verbose_boot else "off"
+        steps.append(PlanStep(
+            title=f"Turn verbose boot {state} (OpenCore boot-args)",
+            argv=["bash", "-c", _set_verbose_boot_script(vid, changes.verbose_boot)],
         ))
     if start_after:
         steps.append(PlanStep(

@@ -280,3 +280,17 @@ def test_validate_config_vlan_out_of_range():
     for bad in (4095, -3):
         issues = validate_config(VmConfig(**base, vlan=bad))
         assert any("VLAN" in i for i in issues), bad
+
+
+def test_validate_edit_changes_counts_verbose_boot_as_a_change():
+    """Toggling verbose boot alone is a real edit, not an empty form."""
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    for state in (True, False):
+        assert validate_edit_changes(900, EditChanges(verbose_boot=state)) == []
+    issues = validate_edit_changes(900, EditChanges())
+    assert any("At least one change" in i for i in issues)
+
+
+def test_edit_changes_verbose_boot_defaults_to_leaving_it_alone():
+    from osx_proxmox_next.domain import EditChanges
+    assert EditChanges().verbose_boot is None

@@ -34,6 +34,26 @@ osx-next-cli apply --execute --verbose-boot \
 ```
 
 This adds `-v` to OpenCore boot arguments, replacing the Apple logo with a text log.
+In the wizard, tick **Verbose boot (-v)** in step 4 instead.
+
+### Turning it on after the fact
+
+A boot hang usually shows up on a VM that is already installed, so you do not
+have to rebuild it. Stop the VM and flip the flag on its existing OpenCore disk:
+
+```bash
+osx-next-cli edit --vmid 910 --verbose-boot --execute
+```
+
+The wizard does the same thing from **Manage > Edit VM** via the *Verbose Boot*
+dropdown. Once you have read the log, turn it back off:
+
+```bash
+osx-next-cli edit --vmid 910 --no-verbose-boot --execute
+```
+
+Only `-v` is added or removed -- the rest of `boot-args` is preserved. Leaving
+both flags off means "don't touch it", so unrelated edits never reset it.
 
 ## Diagnostics
 

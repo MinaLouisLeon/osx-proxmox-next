@@ -70,10 +70,14 @@ These flags are shared by `apply` and `plan`:
 | `--add-disk` | int | No | Extend the target disk by N GB |
 | `--disk-name` | string | No | Disk device to resize (default: `virtio0`) |
 | `--nic-model` | string | No | NIC model when updating bridge (default: preserve existing) |
+| `--verbose-boot` | flag | No | Turn verbose boot on (adds `-v` to OpenCore boot-args) |
+| `--no-verbose-boot` | flag | No | Turn verbose boot off (removes `-v`) |
 | `--start` | flag | No | Start VM after changes are applied |
 | `--execute` | flag | No | Actually run (default is dry run) |
 
-At least one change flag (`--name`, `--cores`, `--memory`, `--bridge`, `--add-disk`) is required.
+At least one change flag (`--name`, `--cores`, `--memory`, `--bridge`, `--add-disk`, `--verbose-boot`/`--no-verbose-boot`) is required.
+
+`--verbose-boot` and `--no-verbose-boot` are mutually exclusive. Omit both and the VM's existing boot-args are left untouched -- there is no default that silently resets them.
 
 ## clone -- Flags
 
@@ -237,6 +241,18 @@ Apply changes and restart the VM automatically:
 ```bash
 osx-next-cli edit --vmid 910 --cores 8 --memory 16384 --start --execute
 ```
+
+Turn verbose boot on for an already-installed VM, then off again:
+
+```bash
+osx-next-cli edit --vmid 910 --verbose-boot --execute
+osx-next-cli edit --vmid 910 --no-verbose-boot --execute
+```
+
+This mounts the VM's OpenCore disk and rewrites `boot-args` in `config.plist`,
+adding or removing `-v` while leaving the rest of the arguments alone. The VM
+must be stopped, which `edit` does for you. Any other edit leaves `boot-args`
+untouched, so changing the core count never quietly turns verbose boot off.
 
 :::note
 The `edit` subcommand always stops the VM before making changes. A config snapshot is saved to `generated/snapshots/` before any modifications. On failure, rollback hints are printed so you can restore manually.

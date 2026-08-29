@@ -349,3 +349,10 @@ def test_cores_limit_unknown_skips_host_check() -> None:
 def test_cores_value_reaches_the_built_config() -> None:
     config = build_vm_config_from_values(_valid_values(cores="16"))
     assert config is not None and config.cores == 16
+
+
+def test_verbose_boot_defaults_off_and_reaches_the_built_config() -> None:
+    off = build_vm_config_from_values(_valid_values())
+    assert off is not None and off.verbose_boot is False
+    on = build_vm_config_from_values(_valid_values(verbose_boot=True))
+    assert on is not None and on.verbose_boot is True

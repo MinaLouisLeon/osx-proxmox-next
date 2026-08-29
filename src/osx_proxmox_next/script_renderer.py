@@ -13,6 +13,7 @@ log = logging.getLogger(__name__)
 
 __all__ = [
     "render_script",
+    "boot_args_value",
     "_plist_patch_script",
     "_apple_id_bypass_patch_keys",
     "_build_oc_disk_script",
@@ -46,6 +47,20 @@ PICKER_TIMEOUT_INSTALLED = 15
 # and 1.1.6 is the newest release. Treat the banner as cosmetic and unfixed;
 # PlatformInfo -> CustomMemory is the kext-free alternative, untested here.
 BOOT_ARGS_BASE = "keepsyms=1 debug=0x100 revblock=pci"
+
+# Apple's own NVRAM GUID, where boot-args and csr-active-config live. Named
+# because the edit planner has to reach the same variables to retune boot-args
+# on an OpenCore disk that was built long ago.
+APPLE_BOOT_VAR_GUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
+
+
+def boot_args_value(verbose_boot: bool = False) -> str:
+    """Return the full OpenCore boot-args string.
+
+    ``-v`` is appended, never substituted: the base arguments configure
+    RestrictEvents and kernel symbols and have to survive the verbose toggle.
+    """
+    return f"{BOOT_ARGS_BASE}{' -v' if verbose_boot else ''}"
 
 
 def _partprobe_retry_snippet(loop_var: str) -> str:
@@ -210,7 +225,7 @@ def _plist_patch_script(
         else ""
     )
     apple_id_bypass = _apple_id_bypass_patch_keys() if apple_services else ""
-    boot_args = f"{BOOT_ARGS_BASE}{' -v' if verbose_boot else ''}"
+    boot_args = boot_args_value(verbose_boot)
 
     return (
         "python3 -c '"
@@ -226,11 +241,11 @@ def _plist_patch_script(
         "p[\"Misc\"][\"Security\"][\"AllowSetDefault\"]=True; "
         "p[\"Misc\"][\"Boot\"][\"PickerMode\"]=\"External\"; "
         "p[\"Misc\"][\"Boot\"][\"PickerVariant\"]=\"Acidanthera\\\\Syrah\"; "
-        "p[\"NVRAM\"][\"Add\"][\"7C436110-AB2A-4BBB-A880-FE41995C9F82\"][\"csr-active-config\"]=b\"\\x67\\x0f\\x00\\x00\"; "
-        f"p[\"NVRAM\"][\"Add\"][\"7C436110-AB2A-4BBB-A880-FE41995C9F82\"][\"boot-args\"]=\"{boot_args}\"; "
-        "p[\"NVRAM\"][\"Add\"][\"7C436110-AB2A-4BBB-A880-FE41995C9F82\"][\"prev-lang:kbd\"]=\"en-US:0\".encode(); "
+        f"p[\"NVRAM\"][\"Add\"][\"{APPLE_BOOT_VAR_GUID}\"][\"csr-active-config\"]=b\"\\x67\\x0f\\x00\\x00\"; "
+        f"p[\"NVRAM\"][\"Add\"][\"{APPLE_BOOT_VAR_GUID}\"][\"boot-args\"]=\"{boot_args}\"; "
+        f"p[\"NVRAM\"][\"Add\"][\"{APPLE_BOOT_VAR_GUID}\"][\"prev-lang:kbd\"]=\"en-US:0\".encode(); "
         "nv_del=p.setdefault(\"NVRAM\",{}).setdefault(\"Delete\",{}); "
-        "nv_del[\"7C436110-AB2A-4BBB-A880-FE41995C9F82\"]=[\"csr-active-config\",\"boot-args\",\"prev-lang:kbd\"]; "
+        f"nv_del[\"{APPLE_BOOT_VAR_GUID}\"]=[\"csr-active-config\",\"boot-args\",\"prev-lang:kbd\"]; "
         "p[\"NVRAM\"][\"WriteFlash\"]=True; "
         "p.setdefault(\"UEFI\",{}).setdefault(\"Quirks\",{})[\"RequestBootVarRouting\"]=True; "
         "[k.update(Enabled=True) for k in p.get(\"Kernel\",{}).get(\"Add\",[]) if \"VirtualSMC\" in k.get(\"BundlePath\",\"\")]; "

@@ -35,6 +35,7 @@ class WizardState:
     apple_services: bool = False
     use_penryn: bool = False
     unattended: bool = False
+    verbose_boot: bool = False
     net_model: str = "vmxnet3"
     form_errors: dict[str, str] = field(default_factory=dict)
     # Preflight

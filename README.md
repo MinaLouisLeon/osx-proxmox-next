@@ -328,6 +328,10 @@ osx-next-cli edit --vmid 910 --bridge vmbr1 --nic-model e1000 --execute
 # Edit and restart VM automatically after changes
 osx-next-cli edit --vmid 910 --cores 8 --memory 16384 --start --execute
 
+# Turn verbose boot on for an installed VM (and back off again)
+osx-next-cli edit --vmid 910 --verbose-boot --execute
+osx-next-cli edit --vmid 910 --no-verbose-boot --execute
+
 # Clone a VM with a fresh SMBIOS identity (dry run - preview commands)
 osx-next-cli clone --source-vmid 910 --new-vmid 911 --name macos-sequoia-clone
 
@@ -439,7 +443,9 @@ macOS requires power-of-2 CPU core counts (2, 4, 8, 16). Non-power-of-2 values l
 <details>
 <summary><strong>I want to see verbose kernel log instead of Apple logo</strong></summary>
 
-Use `--verbose-boot` flag in CLI: `osx-next-cli apply --verbose-boot ...`. This adds `-v` to OpenCore boot arguments. Useful for debugging boot issues.
+Tick **Verbose boot (-v)** in step 4 of the wizard, or pass `--verbose-boot` in the CLI: `osx-next-cli apply --verbose-boot ...`. Either way this adds `-v` to OpenCore's boot arguments. Useful for debugging boot issues.
+
+On a VM that is already installed, flip it from **Manage > Edit VM** (the *Verbose Boot* dropdown), or with `osx-next-cli edit --vmid 910 --verbose-boot --execute`. Use `--no-verbose-boot` to turn it back off. The VM is stopped, its OpenCore disk is mounted, and only `-v` is added to or removed from `boot-args`.
 </details>
 
 ---

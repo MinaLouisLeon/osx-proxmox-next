@@ -2671,3 +2671,80 @@ def test_spawn_unattended_driver_detaches(monkeypatch, tmp_path) -> None:
             assert log_path == str(tmp_path) + "/osx-next-unattended-901.log"
 
     asyncio.run(_run())
+
+
+# ── Verbose Boot Checkbox ─────────────────────────────────────────────
+
+
+def test_verbose_boot_unchecked_by_default() -> None:
+    """A normal install shows the Apple logo; -v is opt-in."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4)
+            assert app.query_one("#verbose_boot_cb", Checkbox).value is False
+            assert app.state.verbose_boot is False
+
+    asyncio.run(_run())
+
+
+def test_verbose_boot_checkbox_reaches_the_built_config(monkeypatch) -> None:
+    """Ticking the box is what finally wires --verbose-boot into the wizard."""
+    monkeypatch.setattr(app_module, "required_assets", lambda cfg: [])
+    monkeypatch.setattr(app_module, "validate_config", lambda cfg: [])
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4, monkeypatch)
+            assert app._read_form().verbose_boot is False
+            await pilot.click("#verbose_boot_cb")
+            await pilot.pause()
+            assert app.state.verbose_boot is True
+            assert app._read_form().verbose_boot is True
+            await pilot.click("#verbose_boot_cb")
+            await pilot.pause()
+            assert app.state.verbose_boot is False
+            assert app._read_form().verbose_boot is False
+
+    asyncio.run(_run())
+
+
+def test_verbose_boot_reaches_the_plan_boot_args(monkeypatch) -> None:
+    """The plan the wizard builds carries -v through to OpenCore's boot-args."""
+    from osx_proxmox_next.planner import build_plan
+    from osx_proxmox_next.script_renderer import boot_args_value
+    monkeypatch.setattr(app_module, "required_assets", lambda cfg: [])
+    monkeypatch.setattr(app_module, "validate_config", lambda cfg: [])
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 50)) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 4, monkeypatch)
+            await pilot.click("#verbose_boot_cb")
+            await pilot.pause()
+            config = app._read_form()
+            with patch("osx_proxmox_next.planner.resolve_opencore_path",
+                       return_value=Path("/tmp/oc.iso")), \
+                 patch("osx_proxmox_next.planner.resolve_recovery_or_installer_path",
+                       return_value=Path("/tmp/recovery.img")):
+                build = next(s for s in build_plan(config) if "OpenCore" in s.title)
+            assert boot_args_value(True) in build.command
+
+    asyncio.run(_run())
+
+
+def test_verbose_boot_shown_in_the_review_summary() -> None:
+    """Step 5 says so, since -v changes what the console looks like."""
+    from osx_proxmox_next.defaults import CpuInfo
+    from osx_proxmox_next.screens import build_config_summary_text
+    cpu = CpuInfo(vendor="Intel", model_name="Intel Core i7-6700K", family=6,
+                  model=94, needs_emulated_cpu=False, needs_penryn=False)
+    base = dict(vmid=901, name="macos-vm", macos="sequoia", cores=8,
+                memory_mb=16384, disk_gb=128, bridge="vmbr0", storage="local-lvm")
+    assert "Verbose boot: on" in build_config_summary_text(
+        VmConfig(**base, verbose_boot=True), [], cpu)
+    assert "Verbose boot" not in build_config_summary_text(VmConfig(**base), [], cpu)

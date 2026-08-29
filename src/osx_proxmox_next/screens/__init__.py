@@ -1,4 +1,6 @@
 from .step_screens import (
+    VERBOSE_BOOT_EDIT_CHOICES,
+    VERBOSE_BOOT_KEEP,
     cores_hint_text,
     compose_step1,
     compose_step2,
@@ -10,6 +12,8 @@ from .step_screens import (
 from .summary_screen import build_config_summary_text, format_preflight_text, format_install_result
 
 __all__ = [
+    "VERBOSE_BOOT_EDIT_CHOICES",
+    "VERBOSE_BOOT_KEEP",
     "cores_hint_text",
     "compose_step1",
     "compose_step2",

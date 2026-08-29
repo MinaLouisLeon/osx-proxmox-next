@@ -75,6 +75,7 @@ Additional options available in this step:
 - **Verbose Boot** -- shows kernel log instead of Apple logo
 - **Unattended install (BETA)** -- finishes the macOS install by itself, see [Unattended Install](./unattended-install.md)
 - **Existing UUID** -- enter a UUID to preserve identity for re-runs
+- **Verbose boot (-v)** -- show the kernel log instead of the Apple logo while booting
 
 :::warning
 macOS requires power-of-2 CPU core counts. Non-power-of-2 values (6, 12) can cause the kernel to hang at the Apple logo, so the wizard rejects them and suggests the nearest safe value.
