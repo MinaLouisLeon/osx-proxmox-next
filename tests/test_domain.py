@@ -294,3 +294,61 @@ def test_validate_edit_changes_counts_verbose_boot_as_a_change():
 def test_edit_changes_verbose_boot_defaults_to_leaving_it_alone():
     from osx_proxmox_next.domain import EditChanges
     assert EditChanges().verbose_boot is None
+
+
+# ── Passthrough validation ───────────────────────────────────────────
+
+
+def test_validate_edit_changes_counts_passthrough_as_a_change():
+    from osx_proxmox_next.domain import DETACH_DEVICE, EditChanges, validate_edit_changes
+    assert validate_edit_changes(900, EditChanges(gpu_device="01:00")) == []
+    assert validate_edit_changes(900, EditChanges(gpu_device=DETACH_DEVICE)) == []
+    # An empty list is "detach every USB device", which is a real change.
+    assert validate_edit_changes(900, EditChanges(usb_devices=[])) == []
+
+
+def test_validate_edit_changes_accepts_every_pci_address_form():
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    for address in ("01:00", "01:00.0", "0000:01:00", "0000:01:00.0", "ff:1f.7"):
+        assert validate_edit_changes(900, EditChanges(gpu_device=address)) == [], address
+
+
+def test_validate_edit_changes_rejects_a_bad_pci_address():
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    for address in ("bogus", "01", "gg:00", "01:00.0.0", ""):
+        issues = validate_edit_changes(900, EditChanges(gpu_device=address))
+        assert any("PCI address" in i for i in issues), address
+
+
+def test_validate_edit_changes_accepts_both_usb_address_forms():
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    assert validate_edit_changes(
+        900, EditChanges(usb_devices=["058f:6387", "2-1.2.2", "1-4"])) == []
+
+
+def test_validate_edit_changes_rejects_a_bad_usb_id():
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    issues = validate_edit_changes(900, EditChanges(usb_devices=["not-a-device"]))
+    assert any("USB device" in i for i in issues)
+
+
+def test_validate_edit_changes_caps_the_usb_count():
+    from osx_proxmox_next.domain import MAX_USB_DEVICES, EditChanges, validate_edit_changes
+    too_many = [f"058f:{i:04d}" for i in range(MAX_USB_DEVICES + 1)]
+    issues = validate_edit_changes(900, EditChanges(usb_devices=too_many))
+    assert any(f"At most {MAX_USB_DEVICES}" in i for i in issues)
+
+
+def test_validate_edit_changes_rejects_a_duplicated_usb_device():
+    """Two slots cannot hold the same host device."""
+    from osx_proxmox_next.domain import EditChanges, validate_edit_changes
+    issues = validate_edit_changes(900, EditChanges(usb_devices=["058f:6387", "058f:6387"]))
+    assert any("more than once" in i for i in issues)
+
+
+def test_edit_changes_passthrough_defaults_leave_devices_alone():
+    from osx_proxmox_next.domain import EditChanges
+    changes = EditChanges()
+    assert changes.gpu_device is None
+    assert changes.usb_devices is None
+    assert changes.gpu_primary is False

@@ -332,6 +332,12 @@ osx-next-cli edit --vmid 910 --cores 8 --memory 16384 --start --execute
 osx-next-cli edit --vmid 910 --verbose-boot --execute
 osx-next-cli edit --vmid 910 --no-verbose-boot --execute
 
+# Pass an AMD GPU through (keeps the Proxmox console; add --gpu-primary to drop it)
+osx-next-cli edit --vmid 910 --gpu 01:00 --execute
+
+# Pass USB devices through - this is the full set, unlisted devices are detached
+osx-next-cli edit --vmid 910 --usb 058f:6387,046d:c52b --execute
+
 # Clone a VM with a fresh SMBIOS identity (dry run - preview commands)
 osx-next-cli clone --source-vmid 910 --new-vmid 911 --name macos-sequoia-clone
 
@@ -460,7 +466,37 @@ Host-side setup is manual and required before the VM can use a discrete GPU.
    - AMD: `amd_iommu=on iommu=pt`
 3. Bind GPU + GPU audio to `vfio-pci`
 4. Reboot host
-5. Attach both PCI functions to VM (`hostpci0`, `hostpci1`)
+
+Once the host is prepared, the tool attaches the card for you -- step 5 used to
+be "attach both PCI functions by hand". From **Manage > Edit VM**, the *GPU*
+dropdown lists the AMD cards found on the host (macOS has no NVIDIA driver past
+High Sierra, so only AMD is offered) and *Proxmox console* decides whether the
+card becomes the VM's primary display. Or from the CLI:
+
+```bash
+osx-next-cli edit --vmid 910 --gpu 01:00 --execute              # keeps the VNC console
+osx-next-cli edit --vmid 910 --gpu 01:00 --gpu-primary --execute # card is primary, console off
+osx-next-cli edit --vmid 910 --gpu detach --execute              # remove it, console back
+```
+
+The address is written without its function (`01:00`, not `01:00.0`), which
+passes **every** function of the device -- the GPU and its HDMI audio in one
+entry, so there is no second `hostpci1` to add.
+
+⚠️ `--gpu-primary` sets `x-vga=1` and `vga: none`. That is right when a monitor
+is plugged into the card, but it removes the Proxmox VNC console: if macOS
+cannot drive the GPU, you get a black screen with no fallback. Start without it.
+
+**USB devices** work the same way, as the set the VM should end up with:
+
+```bash
+osx-next-cli edit --vmid 910 --usb 058f:6387,046d:c52b --execute
+osx-next-cli edit --vmid 910 --usb "" --execute    # detach all
+```
+
+In the TUI the same list is a set of tick boxes that starts out matching the VM,
+so ticking attaches and unticking detaches. Up to five devices, addressed as
+`vendor:product` or a `2-1.2.2` bus path.
 
 📖 Reference: [Proxmox PCI(e) Passthrough Wiki](https://pve.proxmox.com/wiki/PCI(e)_Passthrough)
 

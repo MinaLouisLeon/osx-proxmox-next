@@ -155,3 +155,51 @@ class TestFormatInstallResult:
         text = format_install_result(ok=False, vmid=900, log_path="/tmp/log.txt", snapshot=snap)
         assert "Install FAILED." in text
         assert "ko-fi" not in text
+
+
+class TestPassthroughChoices:
+    def test_gpu_choices_wrap_the_detected_cards(self):
+        from osx_proxmox_next.screens import gpu_choices
+        from osx_proxmox_next.services import PciDevice
+        from osx_proxmox_next.domain import DETACH_DEVICE
+        card = PciDevice(slot="0000:01:00.0", vendor_id="1002", device_id="73ff",
+                         description="Radeon RX 6600 XT", class_id="0x030000",
+                         iommu_group="15")
+        choices = gpu_choices([card])
+        # "Keep unchanged" is the select's blank prompt, not a row here.
+        assert choices[-1][1] == DETACH_DEVICE    # detaching comes last
+        # The value is the function-less address, so every function is passed.
+        assert choices[0][1] == "0000:01:00"
+        assert "Radeon" in choices[0][0]
+
+    def test_gpu_choices_with_no_cards_still_offer_detach(self):
+        from osx_proxmox_next.screens import GPU_DETACH_CHOICE, gpu_choices
+        assert gpu_choices([]) == [GPU_DETACH_CHOICE]
+
+    def test_gpu_hint_names_what_is_attached(self):
+        from osx_proxmox_next.screens import gpu_hint_text
+        assert "01:00,pcie=1" in gpu_hint_text(1, "01:00,pcie=1")
+        assert "Nothing attached" in gpu_hint_text(1, "")
+
+    def test_gpu_hint_explains_an_empty_list_by_naming_amd(self):
+        """An empty dropdown on a box with an NVIDIA card needs explaining."""
+        text = gpu_hint_text_none()
+        assert "AMD" in text and "NVIDIA" in text
+
+    def test_usb_hint_counts_devices_and_explains_ticking(self):
+        from osx_proxmox_next.screens import usb_hint_text
+        assert "No USB devices found" in usb_hint_text(0)
+        text = usb_hint_text(3)
+        assert "3 device(s)" in text and "unticked" in text
+
+    def test_console_choices_are_the_two_states(self):
+        from osx_proxmox_next.screens import (
+            CONSOLE_CHOICES, CONSOLE_GPU_PRIMARY, CONSOLE_KEEP_VNC,
+        )
+        assert [value for _, value in CONSOLE_CHOICES] == [
+            CONSOLE_KEEP_VNC, CONSOLE_GPU_PRIMARY]
+
+
+def gpu_hint_text_none():
+    from osx_proxmox_next.screens import gpu_hint_text
+    return gpu_hint_text(0, "")

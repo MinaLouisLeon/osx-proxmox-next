@@ -26,7 +26,7 @@ Each VM needs its own CPU, RAM, and disk allocation. Don't overcommit host resou
 <details>
 <summary><strong>Can I use GPU passthrough?</strong></summary>
 
-Yes, but host-side setup is manual and must be done before the VM can use a discrete GPU:
+Yes. Host-side setup is manual and must be done before the VM can use a discrete GPU:
 
 1. Enable **VT-d / IOMMU** in BIOS/UEFI
 2. Add to kernel cmdline:
@@ -34,7 +34,21 @@ Yes, but host-side setup is manual and must be done before the VM can use a disc
    - AMD: `amd_iommu=on iommu=pt`
 3. Bind GPU + GPU audio to `vfio-pci`
 4. Reboot host
-5. Attach both PCI functions to VM (`hostpci0`, `hostpci1`)
+
+Attaching the card to the VM is then done for you, from **Manage > Edit VM** or
+with `osx-next-cli edit --vmid 910 --gpu 01:00 --execute`. The address is written
+without its function, which passes every function of the device -- the GPU and
+its HDMI audio in one entry, so there is no separate `hostpci1` to add.
+
+Use **AMD**. macOS has shipped no NVIDIA driver since High Sierra, so the GPU
+picker lists AMD cards only; an NVIDIA card can still be typed in by hand, but
+it will not display anything under a modern macOS.
+
+By default the card is attached alongside the Proxmox console, so VNC keeps
+working while you check whether macOS drives it. *Proxmox console > Disable*
+(CLI: `--gpu-primary`) adds `x-vga=1` and sets `vga: none`, which is what you
+want with a monitor plugged into the card -- but it leaves no console to fall
+back on if the card stays dark.
 
 Reference: [Proxmox PCI(e) Passthrough Wiki](https://pve.proxmox.com/wiki/PCI(e)_Passthrough)
 
@@ -119,7 +133,7 @@ You need at least 64 GB free on your storage target for the VM disk, plus space 
 <details>
 <summary><strong>Can I use NVMe/SSD passthrough?</strong></summary>
 
-Yes, via PCI passthrough. Pass the NVMe controller to the VM the same way you would a GPU -- bind it to `vfio-pci` and attach it via `hostpci`. The VM disk layout uses `virtio0` by default, but a passed-through NVMe drive gives native performance.
+Yes, via PCI passthrough. Pass the NVMe controller to the VM the same way you would a GPU -- bind it to `vfio-pci` and attach it via `hostpci`. The GPU picker only lists graphics cards, so use the free-text address field (or `--gpu <address>`) for a storage controller. The VM disk layout uses `virtio0` by default, but a passed-through NVMe drive gives native performance.
 
 Note: if you pass through your only NVMe drive, Proxmox itself needs to be on a different disk.
 

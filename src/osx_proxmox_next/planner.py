@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from shlex import quote as shquote
 
 from .assets import resolve_opencore_path, resolve_recovery_or_installer_path
 from .defaults import CpuInfo, detect_cpu_info
-from .domain import SUPPORTED_MACOS, VmConfig, PlanStep, EditChanges, validate_config
+from .domain import (
+    DETACH_DEVICE,
+    GPU_HOSTPCI_INDEX,
+    MAX_USB_DEVICES,
+    SUPPORTED_MACOS,
+    EditChanges,
+    PlanStep,
+    VmConfig,
+    validate_config,
+)
 from .infrastructure import ProxmoxAdapter
 from .script_renderer import (
     APPLE_BOOT_VAR_GUID,
@@ -510,19 +520,19 @@ def build_destroy_plan(vmid: int, purge: bool = False) -> list[PlanStep]:
 # ── VM Edit ─────────────────────────────────────────────────────────
 
 
-def _updated_net0(current_net0: str | None, new_bridge: str, nic_model: str | None) -> str:
+def _updated_net0(current_config: str | None, new_bridge: str, nic_model: str | None) -> str:
     """Build a net0 string that preserves existing params (MAC, VLAN, etc.)
     while updating the bridge.  When *nic_model* is None the existing model is
     kept; when it is explicitly provided the new model is used instead.
 
     Falls back to a clean ``vmxnet3,bridge=<new_bridge>,firewall=0`` string when
-    *current_net0* is unavailable.
+    *current_config* is unavailable.
     """
     fallback_model = nic_model or "vmxnet3"
-    if not current_net0:
+    if not current_config:
         return f"{fallback_model},bridge={new_bridge},firewall=0"
 
-    for line in current_net0.splitlines():
+    for line in current_config.splitlines():
         if not line.startswith("net0:"):
             continue
         raw = line.split(":", 1)[1].strip()
@@ -553,11 +563,120 @@ def _updated_net0(current_net0: str | None, new_bridge: str, nic_model: str | No
     return f"{fallback_model},bridge={new_bridge},firewall=0"
 
 
+def _parse_indexed_entries(current_config: str | None, prefix: str) -> dict[int, str]:
+    """Return {index: value} for config keys like ``hostpci0`` or ``usb2``."""
+    entries: dict[int, str] = {}
+    if not current_config:
+        return entries
+    pattern = re.compile(rf"^{prefix}(\d+):\s*(.+)$")
+    for line in current_config.splitlines():
+        match = pattern.match(line.strip())
+        if match:
+            entries[int(match.group(1))] = match.group(2).strip()
+    return entries
+
+
+def _usb_host_id(entry: str) -> str:
+    """Return the ``host=`` value of a usb config entry, lowercased."""
+    for part in entry.split(","):
+        part = part.strip()
+        if part.startswith("host="):
+            return part.split("=", 1)[1].strip().lower()
+    return ""
+
+
+def _gpu_steps(vid: str, changes: EditChanges) -> list[PlanStep]:
+    """Return the steps that attach or detach the passed-through GPU.
+
+    The card always occupies hostpci0 (see domain.GPU_HOSTPCI_INDEX), and
+    the address is written without its function so every function of the
+    device is passed -- a GPU and its HDMI audio reach the guest together,
+    which is what macOS wants and what attaching 01:00.0 alone would miss.
+
+    The console setting rides along because the two are one decision: a
+    primary GPU (x-vga=1) means the Proxmox console is gone, and detaching
+    the card has to give it back or the VM would have no display at all.
+    """
+    if changes.gpu_device is None:
+        return []
+    key = f"hostpci{GPU_HOSTPCI_INDEX}"
+    steps: list[PlanStep] = []
+    if changes.gpu_device == DETACH_DEVICE:
+        steps.append(PlanStep(
+            title=f"Detach passed-through GPU ({key})",
+            argv=["bash", "-c",
+                  f"if qm config {shquote(vid)} | grep -q '^{key}:'; then "
+                  f"qm set {shquote(vid)} --delete {key}; fi"],
+            risk="action",
+        ))
+    else:
+        # Drop the function: 0000:01:00.0 and 01:00.0 both become 01:00.
+        address = changes.gpu_device.rsplit(".", 1)[0]
+        options = "pcie=1,x-vga=1" if changes.gpu_primary else "pcie=1"
+        steps.append(PlanStep(
+            title=f"Attach GPU {address} ({key},{options})",
+            argv=["qm", "set", vid, f"--{key}", f"{address},{options}"],
+            risk="action",
+        ))
+    # Set the console explicitly in every case rather than only when turning
+    # it off: a VM left at vga=none after the card is detached looks dead.
+    console_off = changes.gpu_primary and changes.gpu_device != DETACH_DEVICE
+    steps.append(PlanStep(
+        title=("Disable Proxmox console (GPU is primary)" if console_off
+               else "Keep Proxmox console available (vga: std)"),
+        argv=["qm", "set", vid, "--vga", "none" if console_off else "std"],
+        risk="warn" if console_off else "safe",
+    ))
+    return steps
+
+
+def _usb_steps(vid: str, changes: EditChanges, current_config: str | None) -> list[PlanStep]:
+    """Return the steps that make the VM's USB set match *changes*.
+
+    ``changes.usb_devices`` is the set the VM should end up with, so this
+    diffs against what is attached now: devices that are gone get their
+    slot deleted, new ones fill the lowest free slots. Devices that are
+    already attached are left in the slot they occupy, so re-applying an
+    unchanged selection plans nothing.
+    """
+    if changes.usb_devices is None:
+        return []
+    wanted = [device.lower() for device in changes.usb_devices]
+    current = _parse_indexed_entries(current_config, "usb")
+    attached = {index: _usb_host_id(entry) for index, entry in current.items()}
+
+    steps: list[PlanStep] = []
+    keep: set[int] = set()
+    for index, host_id in sorted(attached.items()):
+        if host_id and host_id in wanted:
+            keep.add(index)
+        else:
+            steps.append(PlanStep(
+                title=f"Detach USB device {host_id or current[index]} (usb{index})",
+                argv=["qm", "set", vid, "--delete", f"usb{index}"],
+                risk="action",
+            ))
+
+    already = {attached[index] for index in keep}
+    free = [i for i in range(MAX_USB_DEVICES) if i not in keep]
+    for device in wanted:
+        if device in already:
+            continue
+        already.add(device)
+        index = free.pop(0)
+        steps.append(PlanStep(
+            title=f"Attach USB device {device} (usb{index})",
+            argv=["qm", "set", vid, f"--usb{index}", f"host={device}"],
+            risk="action",
+        ))
+    return steps
+
+
 def build_edit_plan(
     vmid: int,
     changes: EditChanges,
     start_after: bool = False,
-    current_net0: str | None = None,
+    current_config: str | None = None,
 ) -> list[PlanStep]:
     """Generate a plan to modify an existing macOS VM.
 
@@ -566,16 +685,11 @@ def build_edit_plan(
     so the caller controls when the VM comes back up.
     """
     if not any([changes.name, changes.cores, changes.memory_mb, changes.bridge,
-                changes.disk_gb_add, changes.verbose_boot is not None]):
+                changes.disk_gb_add, changes.verbose_boot is not None,
+                changes.gpu_device is not None, changes.usb_devices is not None]):
         return []
     vid = str(vmid)
-    steps: list[PlanStep] = [
-        PlanStep(
-            title="Stop VM (if running)",
-            argv=["bash", "-c", f"qm status {vid} | grep -q stopped || qm stop {vid}"],
-            risk="warn",
-        ),
-    ]
+    steps: list[PlanStep] = []
     if changes.name is not None:
         steps.append(PlanStep(
             title=f"Rename VM to {changes.name}",
@@ -592,7 +706,7 @@ def build_edit_plan(
             argv=["qm", "set", vid, "--memory", str(changes.memory_mb)],
         ))
     if changes.bridge is not None:
-        net0_val = _updated_net0(current_net0, changes.bridge, changes.nic_model)
+        net0_val = _updated_net0(current_config, changes.bridge, changes.nic_model)
         nic_label = changes.nic_model or "existing model"
         steps.append(PlanStep(
             title=f"Update network bridge to {changes.bridge} (NIC: {nic_label})",
@@ -610,6 +724,18 @@ def build_edit_plan(
             title=f"Turn verbose boot {state} (OpenCore boot-args)",
             argv=["bash", "-c", _set_verbose_boot_script(vid, changes.verbose_boot)],
         ))
+    steps.extend(_gpu_steps(vid, changes))
+    steps.extend(_usb_steps(vid, changes, current_config))
+    # A USB selection that already matches the VM diffs to nothing. Stopping a
+    # running VM to apply no changes at all would be a rude no-op, so bail out
+    # before the stop step rather than after it.
+    if not steps:
+        return []
+    steps.insert(0, PlanStep(
+        title="Stop VM (if running)",
+        argv=["bash", "-c", f"qm status {vid} | grep -q stopped || qm stop {vid}"],
+        risk="warn",
+    ))
     if start_after:
         steps.append(PlanStep(
             title="Start VM",

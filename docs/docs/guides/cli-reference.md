@@ -72,10 +72,13 @@ These flags are shared by `apply` and `plan`:
 | `--nic-model` | string | No | NIC model when updating bridge (default: preserve existing) |
 | `--verbose-boot` | flag | No | Turn verbose boot on (adds `-v` to OpenCore boot-args) |
 | `--no-verbose-boot` | flag | No | Turn verbose boot off (removes `-v`) |
+| `--gpu` | string | No | Pass a GPU through at `hostpci0` (e.g. `01:00`), or `detach` to remove it |
+| `--gpu-primary` | flag | No | Make the passed GPU primary (`x-vga=1`) and set `vga: none` |
+| `--usb` | string | No | Comma-separated USB devices the VM should end up with; unlisted ones are detached |
 | `--start` | flag | No | Start VM after changes are applied |
 | `--execute` | flag | No | Actually run (default is dry run) |
 
-At least one change flag (`--name`, `--cores`, `--memory`, `--bridge`, `--add-disk`, `--verbose-boot`/`--no-verbose-boot`) is required.
+At least one change flag (`--name`, `--cores`, `--memory`, `--bridge`, `--add-disk`, `--verbose-boot`/`--no-verbose-boot`, `--gpu`, `--usb`) is required.
 
 `--verbose-boot` and `--no-verbose-boot` are mutually exclusive. Omit both and the VM's existing boot-args are left untouched -- there is no default that silently resets them.
 
@@ -253,6 +256,63 @@ This mounts the VM's OpenCore disk and rewrites `boot-args` in `config.plist`,
 adding or removing `-v` while leaving the rest of the arguments alone. The VM
 must be stopped, which `edit` does for you. Any other edit leaves `boot-args`
 untouched, so changing the core count never quietly turns verbose boot off.
+
+### Passing host devices through
+
+Attach a GPU. The address is written without its function, so every function of
+the card goes through -- the GPU and its HDMI audio together, which is what
+macOS expects:
+
+```bash
+osx-next-cli edit --vmid 910 --gpu 01:00 --execute
+```
+
+That leaves `vga: std`, so the Proxmox console still works and you can watch the
+VM boot over VNC. To make the card the VM's primary display instead:
+
+```bash
+osx-next-cli edit --vmid 910 --gpu 01:00 --gpu-primary --execute
+```
+
+`--gpu-primary` adds `x-vga=1` and sets `vga: none`. That is the setup you want
+with a monitor plugged into the card, but it removes the VNC console: if macOS
+cannot drive the GPU you get a black screen and no way in. Detaching gives the
+console back:
+
+```bash
+osx-next-cli edit --vmid 910 --gpu detach --execute
+```
+
+`--usb` takes the full set of devices the VM should end up with, not a list to
+add. Anything attached but not listed is detached, which is how you remove one:
+
+```bash
+osx-next-cli edit --vmid 910 --usb 058f:6387,046d:c52b --execute   # exactly these two
+osx-next-cli edit --vmid 910 --usb 058f:6387 --execute             # drops the Logitech
+osx-next-cli edit --vmid 910 --usb "" --execute                    # detaches all of them
+```
+
+Devices are addressed as `vendor:product` (from `lsusb`) or as a `2-1.2.2`
+bus-port path. Up to five can be passed at once. Run `lspci -nn` and `lsusb` on
+the host to find addresses, or use the TUI, which lists them for you.
+
+:::warning
+PCI passthrough needs host-side setup first -- IOMMU on the kernel cmdline and
+the GPU bound to `vfio-pci`. `edit` attaches the device to the VM; it does not
+prepare the host. See [GPU Passthrough](#gpu-passthrough-prerequisites) below.
+:::
+
+### GPU Passthrough prerequisites
+
+Before any of the above will work:
+
+1. Enable **VT-d / IOMMU** in BIOS/UEFI
+2. Add to the kernel cmdline -- Intel: `intel_iommu=on iommu=pt`, AMD: `amd_iommu=on iommu=pt`
+3. Bind the GPU and its audio function to `vfio-pci`
+4. Reboot the host
+
+`osx-next-cli preflight` reports whether IOMMU is enabled. Only AMD cards are
+offered in the TUI picker: macOS has had no NVIDIA driver since High Sierra.
 
 :::note
 The `edit` subcommand always stops the VM before making changes. A config snapshot is saved to `generated/snapshots/` before any modifications. On failure, rollback hints are printed so you can restore manually.

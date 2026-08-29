@@ -34,6 +34,7 @@ class ManageModeMixin:
             create_btn.remove_class("mode_active")
             manage_btn.add_class("mode_active")
             self._refresh_vm_list()
+            self._refresh_host_devices()
         else:
             manage_panel.add_class("hidden")
             create_panel.remove_class("hidden")
