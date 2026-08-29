@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Button, Checkbox, Input, ProgressBar, Select, Static
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Input,
+    ProgressBar,
+    Select,
+    SelectionList,
+    Static,
+)
 
 from ..defaults import (
     DEFAULT_BRIDGE,
@@ -14,7 +22,7 @@ from ..defaults import (
     max_vm_cores,
     recommended_cores,
 )
-from ..domain import DEFAULT_VMID, SUPPORTED_MACOS
+from ..domain import DEFAULT_VMID, DETACH_DEVICE, SUPPORTED_MACOS
 
 # Every field in the Edit VM panel is leave-blank-to-keep, and the panel never
 # loads the VM's current settings, so a plain checkbox could not say "don't
@@ -28,9 +36,56 @@ VERBOSE_BOOT_EDIT_CHOICES = [
     ("Disable", "off"),
 ]
 
+# The GPU picker follows the same leave-it-alone-by-default rule, but it is the
+# one select whose options are replaced once the host scan finishes, and
+# Select.set_options() resets the value to Select.BLANK. So "keep" is the blank
+# state here rather than an option of its own: rebuilding the list then lands on
+# "leave it alone" by construction instead of raising on a select that forbids
+# blank.
+GPU_KEEP_PROMPT = "Keep unchanged"
+GPU_DETACH_CHOICE = ("Detach GPU (hostpci0)", DETACH_DEVICE)
+
+# One control, not two: x-vga=1 is exactly the thing that takes the Proxmox
+# console away, so the console is what the user picks and x-vga follows.
+CONSOLE_KEEP_VNC = "vnc"
+CONSOLE_GPU_PRIMARY = "primary"
+CONSOLE_CHOICES = [
+    ("Keep working (VNC)", CONSOLE_KEEP_VNC),
+    ("Disable, GPU is primary", CONSOLE_GPU_PRIMARY),
+]
+
+
+def gpu_choices(devices) -> list[tuple[str, str]]:
+    """Return the GPU dropdown entries for the detected *devices*.
+
+    "Keep unchanged" is not in here: it is the select's blank prompt.
+    """
+    return [(dev.label, dev.function_group) for dev in devices] + [GPU_DETACH_CHOICE]
+
+
+def gpu_hint_text(detected: int, current: str) -> str:
+    """Return the line under the GPU picker: what is attached, what was found."""
+    attached = f"Attached now: {current}." if current else "Nothing attached to hostpci0."
+    if detected:
+        found = f" {detected} AMD GPU(s) found on this host."
+    else:
+        found = (
+            " No AMD GPU detected - macOS has no driver for NVIDIA, so only AMD "
+            "cards are offered. Type an address below to pass something else."
+        )
+    return attached + found
+
 __all__ = [
+    "CONSOLE_CHOICES",
+    "CONSOLE_GPU_PRIMARY",
+    "CONSOLE_KEEP_VNC",
+    "GPU_DETACH_CHOICE",
+    "GPU_KEEP_PROMPT",
     "VERBOSE_BOOT_EDIT_CHOICES",
     "VERBOSE_BOOT_KEEP",
+    "gpu_choices",
+    "gpu_hint_text",
+    "usb_hint_text",
     "cores_hint_text",
     "compose_step1",
     "compose_step2",
@@ -39,6 +94,19 @@ __all__ = [
     "compose_step5",
     "compose_step6",
 ]
+
+
+def usb_hint_text(detected: int) -> str:
+    """Return the line under the USB list."""
+    if not detected:
+        return (
+            "No USB devices found on the host (lsusb unavailable or nothing "
+            "attached). Type ids below to pass devices anyway."
+        )
+    return (
+        f"{detected} device(s) on this host. Ticked devices are attached to the VM, "
+        "unticked ones are detached from it - the list starts out matching the VM."
+    )
 
 
 def compose_step1() -> ComposeResult:
@@ -116,6 +184,7 @@ def compose_step2() -> ComposeResult:
                         allow_blank=False,
                         id="edit_verbose_boot",
                     )
+                yield from _compose_edit_passthrough()
                 with Horizontal(classes="action_row"):
                     yield Checkbox("Start VM after", value=False, id="edit_start_after_cb")
                     yield Button("Apply Changes", id="edit_apply_btn", disabled=True)
@@ -141,6 +210,40 @@ def cores_hint_text(host_cores: int | None = None) -> str:
     limit = host_cores if host_cores and host_cores > 0 else max_vm_cores()
     allowed = ", ".join(str(n) for n in core_choices(limit))
     return f"Editable - power of 2 only ({allowed}); host has {limit} logical CPUs"
+
+
+def _compose_edit_passthrough() -> ComposeResult:
+    """Yield the GPU and USB passthrough controls for the Edit VM panel.
+
+    The device lists start empty and are filled in from the host once the
+    Manage tab is opened -- running lspci/pvesh during compose would put a
+    hardware scan in front of every startup, including for people who never
+    open this panel.
+    """
+    yield Static("Host device passthrough", classes="manage_section_header")
+    with Container(id="edit_passthrough_grid"):
+        yield Static("GPU (hostpci0)", classes="label")
+        yield Select(gpu_choices([]), prompt=GPU_KEEP_PROMPT, id="edit_gpu")
+        yield Static("", classes="label")
+        yield Static(gpu_hint_text(0, ""), id="edit_gpu_hint", classes="field_hint")
+        yield Static("Or PCI address", classes="label")
+        yield Input(value="", id="edit_gpu_address", placeholder="e.g. 01:00 - overrides the list above")
+        yield Static("Proxmox console", classes="label")
+        yield Select(
+            CONSOLE_CHOICES, value=CONSOLE_KEEP_VNC, allow_blank=False, id="edit_console",
+        )
+        yield Static("", classes="label")
+        yield Static(
+            "Disabling the console sets x-vga=1 and vga: none. If macOS cannot drive "
+            "the card you get a black screen with no VNC to fall back on.",
+            id="edit_console_hint", classes="field_hint",
+        )
+    yield Static("USB devices (ticked = passed through)", classes="manage_section_header")
+    yield SelectionList(id="edit_usb_list")
+    yield Static(usb_hint_text(0), id="edit_usb_hint", classes="hint")
+    with Container(id="edit_usb_manual_grid"):
+        yield Static("Or USB ids", classes="label")
+        yield Input(value="", id="edit_usb_manual", placeholder="058f:6387, 2-1.2.2 - comma separated")
 
 
 def _compose_step4_vm_fields(use_penryn: bool = False) -> ComposeResult:

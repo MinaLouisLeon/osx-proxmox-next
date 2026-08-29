@@ -1,5 +1,5 @@
 from osx_proxmox_next.defaults import CpuInfo
-from osx_proxmox_next.domain import VmConfig
+from osx_proxmox_next.domain import DETACH_DEVICE, VmConfig
 from osx_proxmox_next.planner import (
     build_plan, _cpu_args,
     VmInfo, fetch_vm_info, build_destroy_plan,
@@ -1087,3 +1087,150 @@ def test_restore_picker_timeout_still_patches_only_the_timeout():
     command = _restore_picker_timeout_script("900")
     assert f'["Timeout"]={PICKER_TIMEOUT_INSTALLED}' in command
     assert "boot-args" not in command
+
+
+# ── GPU / USB passthrough ────────────────────────────────────────────
+
+_PASSTHROUGH_CFG = """name: macos-sequoia
+cores: 8
+net0: vmxnet3,bridge=vmbr0,macaddr=AA:BB:CC:DD:EE:FF
+hostpci0: 01:00,pcie=1,x-vga=1
+usb0: host=058f:6387
+usb2: host=046d:c52b,usb3=1
+vga: none
+"""
+
+
+def _edit_titles(cfg=None, **kwargs):
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    return [s.title for s in build_edit_plan(900, EditChanges(**kwargs), current_config=cfg)]
+
+
+def _edit_step(match, cfg=None, **kwargs):
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(**kwargs), current_config=cfg)
+    return next(s for s in steps if match in s.title)
+
+
+def test_parse_indexed_entries_reads_hostpci_and_usb():
+    from osx_proxmox_next.planner import _parse_indexed_entries
+    assert _parse_indexed_entries(_PASSTHROUGH_CFG, "hostpci") == {0: "01:00,pcie=1,x-vga=1"}
+    assert _parse_indexed_entries(_PASSTHROUGH_CFG, "usb") == {
+        0: "host=058f:6387", 2: "host=046d:c52b,usb3=1"}
+    assert _parse_indexed_entries(None, "usb") == {}
+
+
+def test_parse_indexed_entries_does_not_confuse_usb_with_usbN_lookalikes():
+    from osx_proxmox_next.planner import _parse_indexed_entries
+    assert _parse_indexed_entries("usbhost: 1\nusb0: host=1-2\n", "usb") == {0: "host=1-2"}
+
+
+def test_usb_host_id_extracts_the_host_value():
+    from osx_proxmox_next.planner import _usb_host_id
+    assert _usb_host_id("host=058f:6387,usb3=1") == "058f:6387"
+    assert _usb_host_id("host=2-1.2.2") == "2-1.2.2"
+    assert _usb_host_id("spice") == ""
+
+
+def test_gpu_attach_passes_every_function_of_the_device():
+    """01:00 passes the card and its HDMI audio; 01:00.0 would pass video only."""
+    step = _edit_step("Attach GPU", gpu_device="0000:01:00.0")
+    assert step.argv == ["qm", "set", "900", "--hostpci0", "0000:01:00,pcie=1"]
+
+
+def test_gpu_attach_without_primary_keeps_the_console():
+    titles = _edit_titles(gpu_device="01:00", gpu_primary=False)
+    assert "Attach GPU 01:00 (hostpci0,pcie=1)" in titles
+    step = _edit_step("Proxmox console", gpu_device="01:00", gpu_primary=False)
+    assert step.argv == ["qm", "set", "900", "--vga", "std"]
+
+
+def test_gpu_attach_as_primary_sets_x_vga_and_drops_the_console():
+    step = _edit_step("Attach GPU", gpu_device="01:00", gpu_primary=True)
+    assert step.argv == ["qm", "set", "900", "--hostpci0", "01:00,pcie=1,x-vga=1"]
+    console = _edit_step("Proxmox console", gpu_device="01:00", gpu_primary=True)
+    assert console.argv == ["qm", "set", "900", "--vga", "none"]
+    assert console.risk == "warn"  # losing the console is worth flagging
+
+
+def test_gpu_detach_gives_the_console_back():
+    """A detached card plus vga: none would leave the VM with no display at all."""
+    titles = _edit_titles(gpu_device=DETACH_DEVICE, gpu_primary=True, cfg=_PASSTHROUGH_CFG)
+    assert "Detach passed-through GPU (hostpci0)" in titles
+    step = _edit_step("Proxmox console", gpu_device=DETACH_DEVICE, gpu_primary=True,
+                      cfg=_PASSTHROUGH_CFG)
+    assert step.argv == ["qm", "set", "900", "--vga", "std"]
+
+
+def test_gpu_detach_is_a_no_op_when_nothing_is_attached():
+    """--delete hostpci0 on a VM without one fails, so it is guarded."""
+    command = _edit_step("Detach passed-through GPU", gpu_device=DETACH_DEVICE).command
+    assert "grep -q" in command and "hostpci0" in command
+    assert "--delete hostpci0" in command
+
+
+def test_gpu_untouched_when_the_field_is_none():
+    titles = _edit_titles(cores=4, cfg=_PASSTHROUGH_CFG)
+    assert not any("GPU" in t or "console" in t for t in titles)
+
+
+def test_usb_attaches_new_devices_to_the_lowest_free_slots():
+    from osx_proxmox_next.planner import build_edit_plan
+    from osx_proxmox_next.domain import EditChanges
+    steps = build_edit_plan(
+        900, EditChanges(usb_devices=["058f:6387", "05ac:12a8", "1234:5678"]),
+        current_config=_PASSTHROUGH_CFG,
+    )
+    attach = [s.argv for s in steps if s.title.startswith("Attach USB")]
+    # usb0 stays with the device already in it, so the new ones take 1 and 2.
+    assert attach == [
+        ["qm", "set", "900", "--usb1", "host=05ac:12a8"],
+        ["qm", "set", "900", "--usb2", "host=1234:5678"],
+    ]
+
+
+def test_usb_detaches_devices_left_out_of_the_set():
+    titles = _edit_titles(usb_devices=["058f:6387"], cfg=_PASSTHROUGH_CFG)
+    assert "Detach USB device 046d:c52b (usb2)" in titles
+    assert not any("Attach USB" in t for t in titles)
+
+
+def test_usb_empty_list_detaches_everything():
+    titles = _edit_titles(usb_devices=[], cfg=_PASSTHROUGH_CFG)
+    assert "Detach USB device 058f:6387 (usb0)" in titles
+    assert "Detach USB device 046d:c52b (usb2)" in titles
+
+
+def test_usb_keeps_devices_already_attached_in_their_slot():
+    """Re-applying the same selection must plan nothing, not re-attach."""
+    assert _edit_titles(usb_devices=["058f:6387", "046d:c52b"], cfg=_PASSTHROUGH_CFG) == []
+
+
+def test_usb_selection_matching_the_vm_does_not_stop_it():
+    """Stopping a running VM to apply nothing at all would be a rude no-op."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    assert build_edit_plan(
+        900, EditChanges(usb_devices=["058f:6387", "046d:c52b"]),
+        current_config=_PASSTHROUGH_CFG,
+    ) == []
+
+
+def test_usb_is_case_insensitive_against_the_vm_config():
+    assert _edit_titles(usb_devices=["058F:6387", "046D:C52B"], cfg=_PASSTHROUGH_CFG) == []
+
+
+def test_usb_untouched_when_the_field_is_none():
+    assert not any("USB" in t for t in _edit_titles(cores=4, cfg=_PASSTHROUGH_CFG))
+
+
+def test_passthrough_runs_after_the_vm_is_stopped_and_before_the_start():
+    titles = _edit_titles(gpu_device="01:00", usb_devices=[], cfg=_PASSTHROUGH_CFG)
+    assert titles[0] == "Stop VM (if running)"
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    with_start = [s.title for s in build_edit_plan(
+        900, EditChanges(gpu_device="01:00"), start_after=True, current_config=_PASSTHROUGH_CFG)]
+    assert with_start[-1] == "Start VM"

@@ -10,7 +10,16 @@ log = logging.getLogger(__name__)
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.reactive import reactive
-from textual.widgets import Button, Checkbox, Header, Input, ProgressBar, Select, Static
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Header,
+    Input,
+    ProgressBar,
+    Select,
+    SelectionList,
+    Static,
+)
 
 from . import __version__
 from ._edit_mixin import EditModeMixin
@@ -148,7 +157,9 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
             self._validate_form(quiet=True)
         if event.input.id == "manage_vmid":
             self._validate_manage_vmid()
-        if event.input.id in {"edit_vmid", "edit_name", "edit_cores", "edit_memory", "edit_bridge", "edit_disk_add"}:
+        if event.input.id in {"edit_vmid", "edit_name", "edit_cores", "edit_memory",
+                              "edit_bridge", "edit_disk_add", "edit_gpu_address",
+                              "edit_usb_manual"}:
             self._validate_edit_form()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
@@ -181,11 +192,21 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
                 self.query_one("#e1000_hint", Static).add_class("step_hidden")
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        # Picking a verbose-boot state is a change like any other, so Apply has
-        # to become clickable even when no text field was filled in. The select
-        # announces its initial value while the Edit panel is still composing,
-        # and the Apply button is mounted after it, so wait for the button.
-        if event.select.id == "edit_verbose_boot" and self.query("#edit_apply_btn"):
+        # Picking a verbose-boot state, a GPU or a console mode is a change like
+        # any other, so Apply has to become clickable even when no text field
+        # was filled in. These selects announce their initial value while the
+        # Edit panel is still composing, and the Apply button is mounted after
+        # them, so wait for the button.
+        edit_selects = {"edit_verbose_boot", "edit_gpu", "edit_console"}
+        if (event.select.id or "") in edit_selects and self.query("#edit_apply_btn"):
+            self._validate_edit_form()
+
+    def on_selection_list_selected_changed(
+        self, event: SelectionList.SelectedChanged
+    ) -> None:
+        # Ticking or unticking a USB device is what asks for it to be attached
+        # or detached, so Apply follows the list.
+        if (event.selection_list.id or "") == "edit_usb_list" and self.query("#edit_apply_btn"):
             self._validate_edit_form()
 
     def _toggle_apple_services_fields(self) -> None:

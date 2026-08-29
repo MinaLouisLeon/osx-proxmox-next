@@ -16,15 +16,16 @@ def run_edit_worker(
     changes: EditChanges,
     start_after: bool = False,
     on_step: Callable[[int, int, PlanStep, StepResult | None], None] | None = None,
-    current_net0: str | None = None,
+    current_config: str | None = None,
 ) -> ApplyResult:
     """Execute the edit plan for *vmid* with the given *changes*.
 
     Stops the VM, applies changes, and optionally restarts it.
     *on_step* is called from the calling thread after each step.
-    *current_net0* is the raw VM config string used to preserve MAC/VLAN when
-    updating the bridge.
+    *current_config* is the raw ``qm config`` dump. It is read to preserve
+    MAC/VLAN when updating the bridge, and to diff the VM's current USB
+    devices against the requested set.
     """
     from ..planner import build_edit_plan  # lazy — avoids planner ↔ services circular import
-    steps = build_edit_plan(vmid, changes, start_after=start_after, current_net0=current_net0)
+    steps = build_edit_plan(vmid, changes, start_after=start_after, current_config=current_config)
     return apply_plan(steps, execute=True, on_step=on_step)

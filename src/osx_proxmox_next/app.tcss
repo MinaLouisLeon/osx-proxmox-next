@@ -62,6 +62,27 @@ Select > SelectCurrent {
 }
 Select:focus > SelectCurrent { border: tall #2ec27e; background: #1a2c3f; }
 
+/* Passthrough controls reuse the edit grid's label column so the GPU and
+   console rows line up with the fields above them. */
+#edit_passthrough_grid, #edit_usb_manual_grid {
+    layout: grid;
+    grid-size: 2;
+    grid-columns: 18 1fr;
+    grid-gutter: 0 1;
+    height: auto;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+/* Tall enough to show a handful of devices without swallowing the panel; it
+   scrolls when the host has more. */
+#edit_usb_list {
+    height: 7;
+    border: tall #2f6fa2;
+    background: #162433;
+}
+#edit_usb_list:focus { border: tall #2ec27e; }
+
 #preflight_checks {
     background: #0d1722;
     border: tall #1f4f7a;

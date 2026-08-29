@@ -79,3 +79,15 @@ class WizardState:
     edit_ok: bool = False
     edit_log: list[str] = field(default_factory=list)
     edit_start_after: bool = False
+    # Host devices offered for passthrough, scanned once per Manage visit.
+    edit_devices_loaded: bool = False
+    edit_host_gpus: list = field(default_factory=list)
+    edit_host_usb: list = field(default_factory=list)
+    # What the VM in the box already has. edit_loaded_vmid guards against a
+    # slow scan landing after the user has typed a different VMID.
+    edit_loaded_vmid: int | None = None
+    edit_current_gpu: str = ""
+    edit_current_usb: list[str] = field(default_factory=list)
+    # False until the VM's config has actually been read. Until then an empty
+    # tick list means "unknown", not "detach everything".
+    edit_usb_known: bool = False

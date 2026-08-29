@@ -5,13 +5,13 @@ import asyncio
 import time
 from pathlib import Path
 
-from textual.widgets import Button, Checkbox, Input, Select, Static
+from textual.widgets import Button, Checkbox, Input, Select, SelectionList, Static
 
 from osx_proxmox_next import _edit_mixin as edit_mixin_module
 from osx_proxmox_next.app import NextApp
 from osx_proxmox_next.executor import ApplyResult
 from osx_proxmox_next.rollback import RollbackSnapshot
-from osx_proxmox_next.screens import VERBOSE_BOOT_KEEP
+from osx_proxmox_next.screens import CONSOLE_GPU_PRIMARY, VERBOSE_BOOT_KEEP
 from osx_proxmox_next.services import edit_service
 from osx_proxmox_next.services import VmInfo
 
@@ -513,5 +513,272 @@ def test_edit_other_fields_leave_boot_args_alone(monkeypatch) -> None:
                 if app.state.edit_done:
                     break
             assert not any("verbose boot" in s.title for s in captured)
+
+    asyncio.run(_run())
+
+
+# ── GPU / USB passthrough in the Edit VM panel ───────────────────────
+
+
+def _fake_devices(monkeypatch, gpus=None, usb=None) -> None:
+    """Stand in for the host hardware scan."""
+    from osx_proxmox_next.services import PciDevice, UsbDevice
+    if gpus is None:
+        gpus = [PciDevice(slot="0000:01:00.0", vendor_id="1002", device_id="73ff",
+                          description="Radeon RX 6600 XT", class_id="0x030000",
+                          iommu_group="15")]
+    if usb is None:
+        usb = [UsbDevice(device_id="058f:6387", description="Alcor Flash Drive"),
+               UsbDevice(device_id="046d:c52b", description="Logitech Receiver")]
+    monkeypatch.setattr(edit_mixin_module, "detect_gpu_devices", lambda adapter=None: gpus)
+    monkeypatch.setattr(edit_mixin_module, "detect_usb_devices", lambda adapter=None: usb)
+
+
+def _fake_vm_config(monkeypatch, config: str) -> None:
+    monkeypatch.setattr(
+        edit_mixin_module, "fetch_vm_info",
+        lambda vmid, adapter=None: VmInfo(vmid=vmid, name="test-vm",
+                                          status="stopped", config_raw=config),
+    )
+
+
+async def _open_edit(pilot, app, vmid: str = "900") -> None:
+    await _advance_to_manage(pilot, app)
+    app.query_one("#edit_vmid", Input).value = vmid
+    for _ in range(20):
+        await pilot.pause()
+        time.sleep(0.02)
+        if app.state.edit_devices_loaded and app.state.edit_usb_known:
+            break
+
+
+def test_edit_gpu_dropdown_lists_detected_cards(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            assert app.state.edit_host_gpus
+            # Blank is "keep unchanged", so a finished scan arms nothing.
+            assert not isinstance(app.query_one("#edit_gpu", Select).value, str)
+            assert app._read_edit_gpu() is None
+
+    asyncio.run(_run())
+
+
+def test_edit_gpu_selection_becomes_the_attach_address(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_gpu", Select).value = "0000:01:00"
+            await pilot.pause()
+            assert app._read_edit_gpu() == "0000:01:00"
+            assert app.query_one("#edit_apply_btn", Button).disabled is False
+
+    asyncio.run(_run())
+
+
+def test_edit_gpu_typed_address_wins_over_the_dropdown(monkeypatch) -> None:
+    """The free-text field exists for the card the scan did not offer."""
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_gpu", Select).value = "0000:01:00"
+            app.query_one("#edit_gpu_address", Input).value = "03:00"
+            await pilot.pause()
+            assert app._read_edit_gpu() == "03:00"
+
+    asyncio.run(_run())
+
+
+def test_edit_console_selector_drives_gpu_primary(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            assert app._read_edit_console_primary() is False
+            app.query_one("#edit_console", Select).value = CONSOLE_GPU_PRIMARY
+            await pilot.pause()
+            assert app._read_edit_console_primary() is True
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_list_starts_matching_the_vm(monkeypatch) -> None:
+    """Ticks mirror the VM, so unticking is what asks for a detach."""
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            assert app.state.edit_current_usb == ["058f:6387"]
+            assert set(app.query_one("#edit_usb_list", SelectionList).selected) == {"058f:6387"}
+            # Matching the VM is not a change, so Apply stays disabled.
+            assert app._edit_usb_changed() is False
+            assert app.query_one("#edit_apply_btn", Button).disabled is True
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_unticking_asks_for_a_detach(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_usb_list", SelectionList).deselect_all()
+            await pilot.pause()
+            assert app._read_edit_usb() == []
+            assert app._edit_usb_changed() is True
+            assert app.query_one("#edit_apply_btn", Button).disabled is False
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_list_keeps_a_row_for_an_unplugged_device(monkeypatch) -> None:
+    """A device the VM holds but the host no longer sees must stay untickable."""
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=dead:beef\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            widget = app.query_one("#edit_usb_list", SelectionList)
+            assert "dead:beef" in set(widget.selected)
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_left_alone_until_the_config_is_read(monkeypatch) -> None:
+    """An empty list before load means not-known-yet, never detach-everything."""
+    _fake_devices(monkeypatch)
+    monkeypatch.setattr(edit_mixin_module, "fetch_vm_info",
+                        lambda vmid, adapter=None: None)
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            app.query_one("#edit_vmid", Input).value = "900"
+            for _ in range(15):
+                await pilot.pause()
+                time.sleep(0.02)
+            assert app.state.edit_usb_known is False
+            assert app._read_edit_usb() is None
+            assert app._edit_usb_changed() is False
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_manual_ids_join_the_selection(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_usb_manual", Input).value = "05AC:12A8, 2-1.2.2"
+            await pilot.pause()
+            assert app._read_edit_usb() == ["05ac:12a8", "2-1.2.2"]
+
+    asyncio.run(_run())
+
+
+def test_edit_passthrough_reaches_the_plan(monkeypatch) -> None:
+    captured: list = []
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387\n")
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+
+    def fake_apply_plan(steps, execute=False, on_step=None, adapter=None):
+        captured.extend(steps)
+        return ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log"))
+
+    monkeypatch.setattr(edit_service, "apply_plan", fake_apply_plan)
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_gpu", Select).value = "0000:01:00"
+            app.query_one("#edit_console", Select).value = CONSOLE_GPU_PRIMARY
+            app.query_one("#edit_usb_list", SelectionList).deselect_all()
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            titles = [s.title for s in captured]
+            assert "Attach GPU 0000:01:00 (hostpci0,pcie=1,x-vga=1)" in titles
+            assert "Disable Proxmox console (GPU is primary)" in titles
+            assert "Detach USB device 058f:6387 (usb0)" in titles
+
+    asyncio.run(_run())
+
+
+def test_edit_success_resets_the_passthrough_controls(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+    monkeypatch.setattr(
+        edit_service, "apply_plan",
+        lambda steps, execute=False, on_step=None, adapter=None:
+            ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log")),
+    )
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_gpu", Select).value = "0000:01:00"
+            app.query_one("#edit_gpu_address", Input).value = "03:00"
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            assert app._read_edit_gpu() is None
+            assert app.query_one("#edit_gpu_address", Input).value == ""
+            assert app.query_one("#edit_usb_manual", Input).value == ""
 
     asyncio.run(_run())

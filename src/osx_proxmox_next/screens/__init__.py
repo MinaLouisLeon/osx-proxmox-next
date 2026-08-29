@@ -1,6 +1,14 @@
 from .step_screens import (
+    CONSOLE_CHOICES,
+    CONSOLE_GPU_PRIMARY,
+    CONSOLE_KEEP_VNC,
+    GPU_DETACH_CHOICE,
+    GPU_KEEP_PROMPT,
     VERBOSE_BOOT_EDIT_CHOICES,
     VERBOSE_BOOT_KEEP,
+    gpu_choices,
+    gpu_hint_text,
+    usb_hint_text,
     cores_hint_text,
     compose_step1,
     compose_step2,
@@ -12,8 +20,16 @@ from .step_screens import (
 from .summary_screen import build_config_summary_text, format_preflight_text, format_install_result
 
 __all__ = [
+    "CONSOLE_CHOICES",
+    "CONSOLE_GPU_PRIMARY",
+    "CONSOLE_KEEP_VNC",
+    "GPU_DETACH_CHOICE",
+    "GPU_KEEP_PROMPT",
     "VERBOSE_BOOT_EDIT_CHOICES",
     "VERBOSE_BOOT_KEEP",
+    "gpu_choices",
+    "gpu_hint_text",
+    "usb_hint_text",
     "cores_hint_text",
     "compose_step1",
     "compose_step2",

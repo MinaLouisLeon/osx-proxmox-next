@@ -12,7 +12,16 @@ from .assets import required_assets, suggested_fetch_commands
 from .defaults import DEFAULT_ISO_DIR, detect_cpu_info, detect_iso_storage, detect_net_model
 from .diagnostics import export_log_bundle, recovery_guide
 from .doctor import run_doctor, Severity
-from .domain import MIN_VMID, MAX_VMID, SUPPORTED_MACOS, VmConfig, EditChanges, validate_config, validate_edit_changes
+from .domain import (
+    DETACH_DEVICE,
+    MAX_VMID,
+    MIN_VMID,
+    SUPPORTED_MACOS,
+    EditChanges,
+    VmConfig,
+    validate_config,
+    validate_edit_changes,
+)
 from .downloader import (
     DownloadError,
     DownloadProgress,
@@ -204,6 +213,18 @@ def _add_vm_subparsers(sub: argparse._SubParsersAction, common: argparse.Argumen
                               help="Turn verbose boot on (adds -v to OpenCore boot-args)")
     edit_verbose.add_argument("--no-verbose-boot", dest="verbose_boot", action="store_false", default=None,
                               help="Turn verbose boot off (removes -v from OpenCore boot-args)")
+    edit.add_argument("--gpu", type=str, default=None, dest="gpu_device",
+                      metavar="ADDRESS",
+                      help="Pass a GPU through at hostpci0 (e.g. 01:00). "
+                           "Use 'detach' to remove it. Every function of the device is passed.")
+    edit.add_argument("--gpu-primary", action="store_true", default=False, dest="gpu_primary",
+                      help="Make the passed GPU the primary display (x-vga=1) and set vga: none. "
+                           "This removes the Proxmox console.")
+    edit.add_argument("--usb", type=str, default=None, dest="usb_devices",
+                      metavar="IDS",
+                      help="Comma-separated USB devices the VM should end up with "
+                           "(e.g. 058f:6387,2-1.2.2). Devices not listed are detached; "
+                           "an empty value detaches all.")
     edit.add_argument("--start", action="store_true", default=False,
                       help="Start VM after applying changes")
     edit.add_argument("--execute", action="store_true", help="Actually run (default is dry run)")
@@ -548,6 +569,21 @@ def _run_download(args: argparse.Namespace) -> int:
     return 0 if ok else 5
 
 
+def _parse_gpu_arg(raw: str | None) -> str | None:
+    """Map --gpu to EditChanges.gpu_device, translating the detach keyword."""
+    if raw is None:
+        return None
+    value = raw.strip()
+    return DETACH_DEVICE if value.lower() == "detach" else value
+
+
+def _parse_usb_arg(raw: str | None) -> list[str] | None:
+    """Map --usb to the desired USB set; an empty value detaches every device."""
+    if raw is None:
+        return None
+    return [part.strip().lower() for part in raw.split(",") if part.strip()]
+
+
 def _run_edit(args: argparse.Namespace) -> int:
     vmid = args.vmid
     if vmid < MIN_VMID or vmid > MAX_VMID:
@@ -563,6 +599,9 @@ def _run_edit(args: argparse.Namespace) -> int:
         nic_model=args.nic_model,
         disk_name=args.disk_name,
         verbose_boot=args.verbose_boot,
+        gpu_device=_parse_gpu_arg(args.gpu_device),
+        gpu_primary=args.gpu_primary,
+        usb_devices=_parse_usb_arg(args.usb_devices),
     )
 
     issues = validate_edit_changes(vmid, changes)
@@ -571,18 +610,20 @@ def _run_edit(args: argparse.Namespace) -> int:
             print(f"ERROR: {issue}")
         return 2
 
-    current_net0 = None
+    # Read the VM even for a dry run. --usb is a "make the VM look like this"
+    # set, so what it detaches depends on what is attached now: without the
+    # config the preview would show none of the detaches the real run performs.
+    info = fetch_vm_info(vmid, adapter=get_proxmox_adapter())
+    current_config = info.config_raw if info else None
     if args.execute:
-        info = fetch_vm_info(vmid, adapter=get_proxmox_adapter())
         if info is None:
             print(f"ERROR: VM {vmid} not found.")
             return 2
         print(f"VM {vmid}: {info.name} ({info.status})")
         snapshot = create_snapshot(vmid)
         print(f"Snapshot saved: {snapshot.path}")
-        current_net0 = info.config_raw
 
-    steps = build_edit_plan(vmid, changes, start_after=args.start, current_net0=current_net0)
+    steps = build_edit_plan(vmid, changes, start_after=args.start, current_config=current_config)
 
     if not args.execute:
         print("DRY RUN - pass --execute to apply:\n")

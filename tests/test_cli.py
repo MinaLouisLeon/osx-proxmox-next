@@ -1472,3 +1472,67 @@ def test_cli_edit_verbose_boot_flags_are_mutually_exclusive() -> None:
     import pytest
     with pytest.raises(SystemExit):
         run_cli(["edit", "--vmid", "900", "--verbose-boot", "--no-verbose-boot"])
+
+
+# ── edit passthrough flags ───────────────────────────────────────────
+
+
+def test_cli_edit_gpu_attach_keeps_console(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--gpu", "01:00"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--hostpci0 01:00,pcie=1" in out
+    assert "x-vga" not in out
+    assert "--vga std" in out
+
+
+def test_cli_edit_gpu_primary_disables_console(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--gpu", "01:00", "--gpu-primary"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--hostpci0 01:00,pcie=1,x-vga=1" in out
+    assert "--vga none" in out
+
+
+def test_cli_edit_gpu_detach_keyword(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--gpu", "detach"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Detach passed-through GPU" in out
+    # Detaching restores the console, or the VM would have no display at all.
+    assert "--vga std" in out
+
+
+def test_cli_edit_gpu_rejects_a_bad_address() -> None:
+    assert run_cli(["edit", "--vmid", "900", "--gpu", "bogus"]) == 2
+
+
+def test_cli_edit_usb_attaches_the_listed_devices(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--usb", "058f:6387,046d:c52b"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "--usb0 host=058f:6387" in out
+    assert "--usb1 host=046d:c52b" in out
+
+
+def test_cli_edit_usb_rejects_a_bad_id() -> None:
+    assert run_cli(["edit", "--vmid", "900", "--usb", "nonsense"]) == 2
+
+
+def test_cli_edit_parse_helpers_map_the_tri_state() -> None:
+    from osx_proxmox_next.cli import _parse_gpu_arg, _parse_usb_arg
+    from osx_proxmox_next.domain import DETACH_DEVICE
+    assert _parse_gpu_arg(None) is None          # flag omitted: leave it alone
+    assert _parse_gpu_arg("detach") == DETACH_DEVICE
+    assert _parse_gpu_arg("DETACH") == DETACH_DEVICE
+    assert _parse_gpu_arg(" 01:00 ") == "01:00"
+    assert _parse_usb_arg(None) is None          # flag omitted: leave it alone
+    assert _parse_usb_arg("") == []              # given but empty: detach all
+    assert _parse_usb_arg("058F:6387, 2-1.2.2") == ["058f:6387", "2-1.2.2"]
+
+
+def test_cli_edit_without_passthrough_flags_touches_no_devices(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--cores", "4"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "hostpci" not in out and "usb" not in out and "--vga" not in out

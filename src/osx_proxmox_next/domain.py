@@ -20,6 +20,16 @@ MIN_MEMORY_MB = 4096
 MIN_DISK_GB = 64
 DEFAULT_VMID = 900
 
+# Sentinel for EditChanges.gpu_device. The field is tri-state like the rest of
+# the edit form, and None already means "leave it alone", so removing a card
+# needs a value of its own rather than an empty string.
+DETACH_DEVICE = "__detach__"
+
+# The tool manages exactly one passed-through GPU, and it lives at hostpci0.
+# Fixing the index keeps attach/detach predictable and leaves hostpci1+ free
+# for anything attached by hand outside this tool.
+GPU_HOSTPCI_INDEX = 0
+
 
 @dataclass
 class VmConfig:
@@ -75,6 +85,57 @@ class EditChanges:
     # them. Patching this means mounting the VM's OpenCore disk, so "leave it
     # alone" has to be distinguishable from "turn it off".
     verbose_boot: bool | None = None
+    # GPU passthrough. None leaves hostpci0 alone, DETACH_DEVICE removes it,
+    # anything else is the PCI address to attach.
+    gpu_device: str | None = None
+    # True marks the passed GPU as the VM's primary display (x-vga=1) and turns
+    # the Proxmox console off; False keeps the console and leaves the card
+    # secondary. Only read when gpu_device attaches or detaches a card.
+    gpu_primary: bool = False
+    # The full set of host USB devices the VM should end up with, as
+    # "vendor:product" or "bus-port". None leaves every usb entry alone; an
+    # empty list detaches all of them.
+    usb_devices: list[str] | None = None
+
+
+# A PCI address, with the 0000: domain and the .function both optional:
+# qm accepts 0000:01:00.0, 01:00.0 and 01:00 (every function of the device).
+_PCI_ADDRESS_RE = re.compile(r"^(?:[0-9a-fA-F]{4}:)?[0-9a-fA-F]{2}:[0-9a-fA-F]{2}(?:\.[0-9a-fA-F])?$")
+
+# qm set -usb0 host= takes either 058f:6387 or a 2-1.2.2 bus-port path.
+_USB_ID_RE = re.compile(r"^[0-9a-fA-F]{4}:[0-9a-fA-F]{4}$")
+_USB_PORT_RE = re.compile(r"^\d+-\d+(?:\.\d+)*$")
+
+# qemu-server has offered usb0..usb4 since forever; newer releases allow more,
+# but five is the number every supported Proxmox version accepts.
+MAX_USB_DEVICES = 5
+
+
+def _validate_passthrough(changes: EditChanges) -> list[str]:
+    """Return problems with the GPU/USB passthrough fields."""
+    issues: list[str] = []
+    gpu = changes.gpu_device
+    if gpu is not None and gpu != DETACH_DEVICE and not _PCI_ADDRESS_RE.match(gpu):
+        issues.append(
+            f"GPU address {gpu!r} is not a PCI address "
+            "(expected 01:00, 01:00.0 or 0000:01:00.0)."
+        )
+    usb = changes.usb_devices
+    if usb is not None:
+        if len(usb) > MAX_USB_DEVICES:
+            issues.append(
+                f"At most {MAX_USB_DEVICES} USB devices can be passed through "
+                f"({len(usb)} selected)."
+            )
+        for device in usb:
+            if not (_USB_ID_RE.match(device) or _USB_PORT_RE.match(device)):
+                issues.append(
+                    f"USB device {device!r} is not a device id or bus path "
+                    "(expected 058f:6387 or 2-1.2.2)."
+                )
+        if len(set(usb)) != len(usb):
+            issues.append("The same USB device is selected more than once.")
+    return issues
 
 
 def validate_edit_changes(vmid: int, changes: EditChanges) -> list[str]:
@@ -88,9 +149,12 @@ def validate_edit_changes(vmid: int, changes: EditChanges) -> list[str]:
         changes.bridge is not None,
         changes.disk_gb_add is not None,
         changes.verbose_boot is not None,
+        changes.gpu_device is not None,
+        changes.usb_devices is not None,
     ])
     if not has_any:
         issues.append("At least one change must be specified.")
+    issues.extend(_validate_passthrough(changes))
     if changes.name is not None:
         if len(changes.name) < 3:
             issues.append("VM name must be at least 3 characters.")
