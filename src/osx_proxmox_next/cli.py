@@ -197,6 +197,13 @@ def _add_vm_subparsers(sub: argparse._SubParsersAction, common: argparse.Argumen
                       help="Disk device to resize (default: virtio0)")
     edit.add_argument("--nic-model", type=str, default=None, dest="nic_model",
                       help="NIC model to use when updating bridge (default: preserve existing)")
+    # Tri-state, matching every other edit flag: omit both and the VM's
+    # existing boot-args are left alone rather than reset to non-verbose.
+    edit_verbose = edit.add_mutually_exclusive_group()
+    edit_verbose.add_argument("--verbose-boot", dest="verbose_boot", action="store_true", default=None,
+                              help="Turn verbose boot on (adds -v to OpenCore boot-args)")
+    edit_verbose.add_argument("--no-verbose-boot", dest="verbose_boot", action="store_false", default=None,
+                              help="Turn verbose boot off (removes -v from OpenCore boot-args)")
     edit.add_argument("--start", action="store_true", default=False,
                       help="Start VM after applying changes")
     edit.add_argument("--execute", action="store_true", help="Actually run (default is dry run)")
@@ -555,6 +562,7 @@ def _run_edit(args: argparse.Namespace) -> int:
         disk_gb_add=args.disk_gb_add,
         nic_model=args.nic_model,
         disk_name=args.disk_name,
+        verbose_boot=args.verbose_boot,
     )
 
     issues = validate_edit_changes(vmid, changes)

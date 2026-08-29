@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 from textual.app import App, ComposeResult
 from textual.containers import Container
 from textual.reactive import reactive
-from textual.widgets import Button, Checkbox, Header, Input, ProgressBar, Static
+from textual.widgets import Button, Checkbox, Header, Input, ProgressBar, Select, Static
 
 from . import __version__
 from ._edit_mixin import EditModeMixin
@@ -169,6 +169,8 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
             else:
                 self._suggest_cores(recommended_cores())
                 hint.add_class("step_hidden")
+        if event.checkbox.id == "verbose_boot_cb":
+            self.state.verbose_boot = event.checkbox.value
         if event.checkbox.id == "unattended_cb":
             self.state.unattended = event.checkbox.value
         if event.checkbox.id == "e1000_cb":
@@ -177,6 +179,14 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
                 self.query_one("#e1000_hint", Static).remove_class("step_hidden")
             else:
                 self.query_one("#e1000_hint", Static).add_class("step_hidden")
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        # Picking a verbose-boot state is a change like any other, so Apply has
+        # to become clickable even when no text field was filled in. The select
+        # announces its initial value while the Edit panel is still composing,
+        # and the Apply button is mounted after it, so wait for the button.
+        if event.select.id == "edit_verbose_boot" and self.query("#edit_apply_btn"):
+            self._validate_edit_form()
 
     def _toggle_apple_services_fields(self) -> None:
         c = self.query_one("#apple_services_fields")

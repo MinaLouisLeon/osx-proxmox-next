@@ -39,6 +39,7 @@ class FormValues:
     selected_os: str = "sequoia"
     apple_services: bool = False
     use_penryn: bool = False
+    verbose_boot: bool = False
     net_model: str = "vmxnet3"
     smbios: SmbiosIdentity | None = None
 
@@ -168,6 +169,7 @@ def build_vm_config_from_values(values: FormValues) -> VmConfig | None:
         smbios_model=smbios.model if smbios else "",
         apple_services=values.apple_services,
         cpu_model="Penryn" if values.use_penryn else "",
+        verbose_boot=values.verbose_boot,
         net_model=values.net_model,
         vmgenid=values.custom_vmgenid.strip().upper() if values.apple_services else "",
         static_mac=values.custom_mac.strip().upper() if values.apple_services else "",

@@ -587,3 +587,15 @@ def test_bash_pve_check_gates_on_major_version_only(tmp_path: Path, version: str
     else:
         assert "ACCEPTED" not in result.stdout
         assert result.returncode == 1
+
+
+def test_boot_args_value_appends_v_without_dropping_the_base() -> None:
+    from osx_proxmox_next.script_renderer import BOOT_ARGS_BASE, boot_args_value
+    assert boot_args_value(False) == BOOT_ARGS_BASE
+    assert boot_args_value(True) == f"{BOOT_ARGS_BASE} -v"
+    assert boot_args_value() == BOOT_ARGS_BASE
+
+
+def test_plist_patch_script_uses_the_named_apple_nvram_guid() -> None:
+    from osx_proxmox_next.script_renderer import APPLE_BOOT_VAR_GUID, _plist_patch_script
+    assert APPLE_BOOT_VAR_GUID in _plist_patch_script()

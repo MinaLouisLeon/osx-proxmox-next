@@ -1431,3 +1431,44 @@ def test_install_unattended_reports_driver_failure(monkeypatch, capsys):
     rc = cli_mod.run_cli(["install-unattended", "--vmid", "953", "--disk-gb", "64"])
     assert rc == 1
     assert "no picker" in capsys.readouterr().out
+
+
+# ── edit --verbose-boot / --no-verbose-boot ──────────────────────────
+
+
+def test_cli_edit_verbose_boot_dry_run(capsys) -> None:
+    from osx_proxmox_next.script_renderer import boot_args_value
+    rc = run_cli(["edit", "--vmid", "900", "--verbose-boot"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Turn verbose boot on (OpenCore boot-args)" in out
+    assert boot_args_value(True) in out
+
+
+def test_cli_edit_no_verbose_boot_dry_run(capsys) -> None:
+    from osx_proxmox_next.script_renderer import BOOT_ARGS_BASE
+    rc = run_cli(["edit", "--vmid", "900", "--no-verbose-boot"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Turn verbose boot off (OpenCore boot-args)" in out
+    assert BOOT_ARGS_BASE in out
+    assert f"{BOOT_ARGS_BASE} -v" not in out
+
+
+def test_cli_edit_verbose_boot_alone_is_a_valid_change(capsys) -> None:
+    """Neither flag leaves boot-args alone, so one of them must be enough."""
+    assert run_cli(["edit", "--vmid", "900"]) == 2
+    capsys.readouterr()
+    assert run_cli(["edit", "--vmid", "900", "--verbose-boot"]) == 0
+
+
+def test_cli_edit_without_verbose_flags_skips_boot_args(capsys) -> None:
+    rc = run_cli(["edit", "--vmid", "900", "--cores", "4"])
+    assert rc == 0
+    assert "verbose boot" not in capsys.readouterr().out
+
+
+def test_cli_edit_verbose_boot_flags_are_mutually_exclusive() -> None:
+    import pytest
+    with pytest.raises(SystemExit):
+        run_cli(["edit", "--vmid", "900", "--verbose-boot", "--no-verbose-boot"])

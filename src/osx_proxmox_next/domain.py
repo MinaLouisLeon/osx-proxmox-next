@@ -70,6 +70,11 @@ class EditChanges:
     nic_model: str | None = None
     # Disk device name used for resize (default matches VMs created by this tool)
     disk_name: str = "virtio0"
+    # Verbose boot (-v in OpenCore boot-args). Tri-state, like every other field
+    # here: None leaves the VM's existing boot-args alone, True/False rewrite
+    # them. Patching this means mounting the VM's OpenCore disk, so "leave it
+    # alone" has to be distinguishable from "turn it off".
+    verbose_boot: bool | None = None
 
 
 def validate_edit_changes(vmid: int, changes: EditChanges) -> list[str]:
@@ -82,6 +87,7 @@ def validate_edit_changes(vmid: int, changes: EditChanges) -> list[str]:
         changes.memory_mb is not None,
         changes.bridge is not None,
         changes.disk_gb_add is not None,
+        changes.verbose_boot is not None,
     ])
     if not has_any:
         issues.append("At least one change must be specified.")

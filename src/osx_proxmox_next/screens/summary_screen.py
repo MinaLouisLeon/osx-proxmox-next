@@ -29,6 +29,8 @@ def build_config_summary_text(
         f"Storage: {config.storage} | Bridge: {config.bridge}"
         + (f" | VLAN: {config.vlan}" if config.vlan else ""),
     ]
+    if config.verbose_boot:
+        lines.append("Verbose boot: on (-v) - kernel log instead of the Apple logo")
     if config.installer_path:
         lines.append(f"Installer: {config.installer_path}")
     lines.append("")
