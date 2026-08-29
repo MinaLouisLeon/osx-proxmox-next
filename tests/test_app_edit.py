@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from pathlib import Path
 
@@ -881,5 +882,114 @@ def test_apply_button_is_reachable_once_scrolled() -> None:
             app.query_one("#body").scroll_to_widget(button, animate=False)
             await pilot.pause()
             assert button.region.height > 0  # actually laid out, not clipped away
+
+    asyncio.run(_run())
+
+
+# ── Leaving the Manage panel ─────────────────────────────────────────
+#
+# The wizard's Exit buttons all sit in the Create panel, which is hidden while
+# managing, so once an edit had been applied the only way out was the q/escape
+# binding - not something the panel says anywhere.
+
+
+def test_manage_panel_has_its_own_exit_button() -> None:
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _advance_to_manage(pilot, app)
+            button = app.query_one("#exit_btn_manage", Button)
+            assert not button.disabled
+            assert not app.query_one("#manage_panel").has_class("hidden")
+
+    asyncio.run(_run())
+
+
+def test_manage_exit_button_closes_the_app(monkeypatch) -> None:
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+    monkeypatch.setattr(
+        edit_service, "apply_plan",
+        lambda steps, execute=False, on_step=None, adapter=None:
+            ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log")),
+    )
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_cores", Input).value = "4"
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            assert app.state.edit_ok
+            # The result says where to go next, and that button is live again.
+            assert "Exit" in str(app.query_one("#edit_result", Static).renderable)
+            button = app.query_one("#exit_btn_manage", Button)
+            assert not button.disabled
+
+            # Stand in for App.exit rather than really tearing the app down:
+            # the run_test harness owns the shutdown, and what is under test is
+            # that this button reaches the exit path at all.
+            exits: list[bool] = []
+            app.exit = lambda *a, **kw: exits.append(True)  # type: ignore[method-assign]
+            try:
+                app.on_button_pressed(Button.Pressed(button))
+            finally:
+                del app.exit  # type: ignore[attr-defined]
+            assert exits == [True]
+
+    asyncio.run(_run())
+
+
+def test_manage_exit_is_disabled_while_an_edit_runs(monkeypatch) -> None:
+    """Exiting mid-apply would tear the app down over a half-written VM."""
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\n")
+    monkeypatch.setattr(
+        edit_mixin_module, "create_snapshot",
+        lambda vmid: RollbackSnapshot(vmid=vmid, path=Path("/tmp/snap.conf")),
+    )
+    release = threading.Event()
+
+    def slow_apply_plan(steps, execute=False, on_step=None, adapter=None):
+        release.wait(5)  # held open so the test can look at the panel mid-apply
+        return ApplyResult(ok=True, results=[], log_path=Path("/tmp/edit.log"))
+
+    monkeypatch.setattr(edit_service, "apply_plan", slow_apply_plan)
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            app.query_one("#edit_cores", Input).value = "4"
+            await pilot.pause()
+            await pilot.click("#edit_apply_btn")
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.02)
+                if app.state.edit_running:
+                    break
+            try:
+                assert app.query_one("#exit_btn_manage", Button).disabled
+            finally:
+                release.set()
+            for _ in range(30):
+                await pilot.pause()
+                time.sleep(0.05)
+                if app.state.edit_done:
+                    break
+            assert not app.query_one("#exit_btn_manage", Button).disabled
 
     asyncio.run(_run())
