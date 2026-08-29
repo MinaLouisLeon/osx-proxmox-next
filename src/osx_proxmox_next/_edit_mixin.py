@@ -269,6 +269,7 @@ class EditModeMixin:
         self.state.edit_done = False  # type: ignore[attr-defined]
         self.state.edit_log = []  # type: ignore[attr-defined]
         self.query_one("#edit_apply_btn", Button).disabled = True
+        self._set_manage_exit_enabled(False)
         self.query_one("#edit_log").remove_class("hidden")
         self.query_one("#edit_log", Static).update("Applying changes...")
         self.query_one("#edit_result").add_class("hidden")
@@ -317,6 +318,8 @@ class EditModeMixin:
         self.state.edit_running = False  # type: ignore[attr-defined]
         self.state.edit_done = True  # type: ignore[attr-defined]
         self.state.edit_ok = ok  # type: ignore[attr-defined]
+        # The worker is done, so leaving now can no longer cut a job short.
+        self._set_manage_exit_enabled(True)
         if ok:
             # Clear form fields so re-clicking Apply doesn't re-apply (disk resize is non-idempotent)
             for sel in ("#edit_name", "#edit_cores", "#edit_memory", "#edit_bridge", "#edit_disk_add"):
@@ -337,7 +340,9 @@ class EditModeMixin:
         result_box.remove_class("hidden")
         if ok:
             result_box.remove_class("edit_result_fail")
-            result_box.update(f"Changes applied.\nLog: {log_path}")
+            result_box.update(
+                f"Changes applied.\nLog: {log_path}\nPress Exit below to close."
+            )
             self._refresh_vm_list()
         else:
             result_box.add_class("edit_result_fail")

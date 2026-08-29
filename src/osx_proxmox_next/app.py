@@ -138,7 +138,8 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
 
         _NEXT = {"preflight_next_btn", "next_btn", "next_btn_3", "next_btn_4", "next_btn_5"}
         _BACK = {"back_btn_2", "back_btn_3", "back_btn_4", "back_btn_5", "back_btn_6"}
-        _EXIT = {"exit_btn", "exit_btn_2", "exit_btn_3", "exit_btn_4", "exit_btn_5", "exit_btn_6"}
+        _EXIT = {"exit_btn", "exit_btn_2", "exit_btn_3", "exit_btn_4", "exit_btn_5",
+                 "exit_btn_6", "exit_btn_manage"}
         if bid in _NEXT:
             self._go_next()
         elif bid in _BACK:
@@ -221,6 +222,16 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
         # or detached, so Apply follows the list.
         if (event.selection_list.id or "") == "edit_usb_list" and self.query("#edit_apply_btn"):
             self._validate_edit_form()
+
+    def _set_manage_exit_enabled(self, enabled: bool) -> None:
+        """Enable or disable the Manage panel's Exit button.
+
+        Exiting tears the app down while the worker thread is still writing to
+        the VM, so the button is off for as long as a job runs. query() rather
+        than query_one(): the button is not mounted until step 2 has composed.
+        """
+        for button in self.query("#exit_btn_manage"):
+            button.disabled = not enabled
 
     def _toggle_apple_services_fields(self) -> None:
         c = self.query_one("#apple_services_fields")

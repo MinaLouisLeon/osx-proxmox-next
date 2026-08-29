@@ -98,6 +98,7 @@ class ManageModeMixin:
         self.state.uninstall_done = False  # type: ignore[attr-defined]
         self.state.uninstall_log = []  # type: ignore[attr-defined]
         self.query_one("#manage_destroy_btn", Button).disabled = True
+        self._set_manage_exit_enabled(False)
         self.query_one("#manage_log").remove_class("hidden")
         self.query_one("#manage_log", Static).update("Removing VM...")
         self.query_one("#manage_result").add_class("hidden")
@@ -140,6 +141,8 @@ class ManageModeMixin:
         self.state.uninstall_running = False  # type: ignore[attr-defined]
         self.state.uninstall_done = True  # type: ignore[attr-defined]
         self.state.uninstall_ok = ok  # type: ignore[attr-defined]
+        # The worker is done, so leaving now can no longer cut a job short.
+        self._set_manage_exit_enabled(True)
         result_box = self.query_one("#manage_result", Static)
         result_box.remove_class("hidden")
         if ok:

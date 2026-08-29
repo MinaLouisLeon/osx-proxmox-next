@@ -190,6 +190,11 @@ def compose_step2() -> ComposeResult:
                     yield Button("Apply Changes", id="edit_apply_btn", disabled=True)
             yield Static("", id="edit_log", classes="hidden")
             yield Static("", id="edit_result", classes="hidden")
+            # The wizard's Exit buttons all live in the Create panel, which is
+            # hidden while managing, so finishing an edit left the keyboard
+            # bindings as the only way out. Give Manage its own way to close.
+            with Horizontal(classes="nav_row"):
+                yield Button("Exit", id="exit_btn_manage")
 
 
 def compose_step3(storage_targets: list[str]) -> ComposeResult:
