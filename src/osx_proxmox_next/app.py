@@ -65,6 +65,13 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("escape", "quit", "Quit"),
+        # The taller panels (step 4, and Edit VM with its passthrough controls)
+        # run past the fold. The mouse wheel and Tab both scroll #body, but
+        # neither is available over a plain SSH session with mouse reporting
+        # off, so give the keyboard a way down as well. A focused Input does
+        # not consume these, and a focused list gets first refusal.
+        ("pagedown", "page_body_down", "Scroll down"),
+        ("pageup", "page_body_up", "Scroll up"),
     ]
 
     current_step: reactive[int] = reactive(1)
@@ -90,6 +97,12 @@ class NextApp(WizardStepsMixin, ManageModeMixin, EditModeMixin, App):
             yield from compose_step4(self._cpu_info)
             yield from compose_step5()
             yield from compose_step6()
+
+    def action_page_body_down(self) -> None:
+        self.query_one("#body").scroll_page_down()
+
+    def action_page_body_up(self) -> None:
+        self.query_one("#body").scroll_page_up()
 
     def on_mount(self) -> None:
         self._update_step_bar()

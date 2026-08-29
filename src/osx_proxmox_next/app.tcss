@@ -10,7 +10,14 @@ Header { background: #103252; color: #f6f8fa; }
     content-align: center middle;
 }
 
-#body { height: 1fr; padding: 1 2; overflow-y: auto; }
+#body {
+    height: 1fr;
+    padding: 1 2;
+    overflow-y: auto;
+    /* Reserve the gutter so the layout does not jump sideways when a panel
+       grows past the fold and the scrollbar appears. */
+    scrollbar-gutter: stable;
+}
 
 .step_container { height: auto; padding: 1; }
 .step_hidden { display: none; }
@@ -62,8 +69,9 @@ Select > SelectCurrent {
 }
 Select:focus > SelectCurrent { border: tall #2ec27e; background: #1a2c3f; }
 
-/* Passthrough controls reuse the edit grid's label column so the GPU and
-   console rows line up with the fields above them. */
+/* Same label column as #edit_grid, so the GPU and console rows line up with
+   the fields above them instead of stepping in and out. Both are 18: the
+   passthrough labels ("Proxmox console", "Or PCI address") overflow at 14. */
 #edit_passthrough_grid, #edit_usb_manual_grid {
     layout: grid;
     grid-size: 2;
@@ -164,6 +172,15 @@ Select:focus > SelectCurrent { border: tall #2ec27e; background: #1a2c3f; }
 
 #manage_panel { height: auto; padding: 1; }
 
+/* Textual's Vertical and Container default to `height: 1fr; overflow: hidden`,
+   so a panel that outgrows the viewport silently clips its own tail instead of
+   growing. #body is the one scrolling surface, and it can only scroll content
+   that is actually taller than it - a clipped child reports the viewport
+   height, so there is nothing to scroll and the fields below the fold become
+   unreachable. Every panel that stacks content therefore sizes to it.
+   #manage_panel above already did; these are the ones that did not. */
+#create_panel, #edit_form, #apple_services_fields { height: auto; }
+
 #manage_vmid { width: 30; }
 #manage_vmid_label { color: #9fc6e8; margin-top: 1; }
 #edit_vmid_label { color: #9fc6e8; }
@@ -207,7 +224,9 @@ Select:focus > SelectCurrent { border: tall #2ec27e; background: #1a2c3f; }
 #edit_grid {
     layout: grid;
     grid-size: 2;
-    grid-columns: 14 1fr;
+    /* Kept in step with #edit_passthrough_grid below - the two stack in one
+       form and a differing label column makes the rows look ragged. */
+    grid-columns: 18 1fr;
     grid-gutter: 0 1;
     height: auto;
     width: 100%;
