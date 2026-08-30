@@ -1511,8 +1511,10 @@ def test_cli_edit_usb_attaches_the_listed_devices(capsys) -> None:
     rc = run_cli(["edit", "--vmid", "900", "--usb", "058f:6387,046d:c52b"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "--usb0 host=058f:6387" in out
-    assert "--usb1 host=046d:c52b" in out
+    # usb3=1 puts the device on the VM's XHCI controller; without it macOS
+    # Sonoma and newer never bind a passed-through keyboard or mouse.
+    assert "--usb0 host=058f:6387,usb3=1" in out
+    assert "--usb1 host=046d:c52b,usb3=1" in out
 
 
 def test_cli_edit_usb_rejects_a_bad_id() -> None:

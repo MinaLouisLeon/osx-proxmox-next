@@ -498,6 +498,17 @@ In the TUI the same list is a set of tick boxes that starts out matching the VM,
 so ticking attaches and unticking detaches. Up to five devices, addressed as
 `vendor:product` or a `2-1.2.2` bus path.
 
+Devices are attached as **USB 3** on the VM's XHCI controller:
+
+```
+usb0: host=058f:6387,usb3=1
+```
+
+Modern macOS (Sonoma, Sequoia, Tahoe) often will not bind a passed-through
+keyboard or mouse that arrives on the USB 2 hub, so `usb3=1` is always written.
+An entry created before this and left without the flag is rewritten in place --
+same slot, same device -- the next time Manage VM applies USB passthrough.
+
 📖 Reference: [Proxmox PCI(e) Passthrough Wiki](https://pve.proxmox.com/wiki/PCI(e)_Passthrough)
 
 ---

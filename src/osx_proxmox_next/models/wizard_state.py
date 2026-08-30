@@ -88,6 +88,10 @@ class WizardState:
     edit_loaded_vmid: int | None = None
     edit_current_gpu: str = ""
     edit_current_usb: list[str] = field(default_factory=list)
+    # Attached devices whose config entry predates USB 3 passthrough. They
+    # count as a pending change so Manage can rewrite them even when the
+    # user has not ticked anything.
+    edit_usb_legacy: list[str] = field(default_factory=list)
     # False until the VM's config has actually been read. Until then an empty
     # tick list means "unknown", not "detach everything".
     edit_usb_known: bool = False

@@ -12,6 +12,7 @@ from .domain import (
     GPU_HOSTPCI_INDEX,
     MAX_USB_DEVICES,
     SUPPORTED_MACOS,
+    USB3_OPTION,
     EditChanges,
     PlanStep,
     VmConfig,
@@ -585,6 +586,25 @@ def _usb_host_id(entry: str) -> str:
     return ""
 
 
+def _usb_is_usb3(entry: str) -> bool:
+    """True when a usb config entry is already attached as a USB 3 device."""
+    return any(part.strip().lower() == USB3_OPTION for part in entry.split(","))
+
+
+def _usb_value(host_id: str, existing: str | None = None) -> str:
+    """Build the ``usbN`` value for *host_id*, always as a USB 3 device.
+
+    *existing* is the entry the VM has now, if any: its other parameters are
+    kept as they are so upgrading a device to USB 3 does not quietly drop
+    anything Proxmox or the user put there.
+    """
+    if not existing:
+        return f"host={host_id},{USB3_OPTION}"
+    kept = [part.strip() for part in existing.split(",")
+            if part.strip() and not part.strip().lower().startswith("usb3=")]
+    return ",".join(kept + [USB3_OPTION])
+
+
 def _gpu_steps(vid: str, changes: EditChanges) -> list[PlanStep]:
     """Return the steps that attach or detach the passed-through GPU.
 
@@ -637,7 +657,9 @@ def _usb_steps(vid: str, changes: EditChanges, current_config: str | None) -> li
     diffs against what is attached now: devices that are gone get their
     slot deleted, new ones fill the lowest free slots. Devices that are
     already attached are left in the slot they occupy, so re-applying an
-    unchanged selection plans nothing.
+    unchanged selection plans nothing -- unless the entry predates USB 3
+    passthrough, which is rewritten in place (same slot, same host id) so
+    macOS Sonoma and newer can actually use the device.
     """
     if changes.usb_devices is None:
         return []
@@ -650,6 +672,13 @@ def _usb_steps(vid: str, changes: EditChanges, current_config: str | None) -> li
     for index, host_id in sorted(attached.items()):
         if host_id and host_id in wanted:
             keep.add(index)
+            if not _usb_is_usb3(current[index]):
+                steps.append(PlanStep(
+                    title=f"Switch USB device {host_id} to USB 3 (usb{index})",
+                    argv=["qm", "set", vid, f"--usb{index}",
+                          _usb_value(host_id, current[index])],
+                    risk="action",
+                ))
         else:
             steps.append(PlanStep(
                 title=f"Detach USB device {host_id or current[index]} (usb{index})",
@@ -666,7 +695,7 @@ def _usb_steps(vid: str, changes: EditChanges, current_config: str | None) -> li
         index = free.pop(0)
         steps.append(PlanStep(
             title=f"Attach USB device {device} (usb{index})",
-            argv=["qm", "set", vid, f"--usb{index}", f"host={device}"],
+            argv=["qm", "set", vid, f"--usb{index}", _usb_value(device)],
             risk="action",
         ))
     return steps

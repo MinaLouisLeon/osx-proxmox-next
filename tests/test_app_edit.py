@@ -625,7 +625,7 @@ def test_edit_console_selector_drives_gpu_primary(monkeypatch) -> None:
 def test_edit_usb_list_starts_matching_the_vm(monkeypatch) -> None:
     """Ticks mirror the VM, so unticking is what asks for a detach."""
     _fake_devices(monkeypatch)
-    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387\n")
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387,usb3=1\n")
 
     async def _run() -> None:
         app = NextApp()
@@ -637,6 +637,23 @@ def test_edit_usb_list_starts_matching_the_vm(monkeypatch) -> None:
             # Matching the VM is not a change, so Apply stays disabled.
             assert app._edit_usb_changed() is False
             assert app.query_one("#edit_apply_btn", Button).disabled is True
+
+    asyncio.run(_run())
+
+
+def test_edit_usb_entry_without_usb3_counts_as_a_pending_change(monkeypatch) -> None:
+    """A pre-USB-3 entry has to be rewritable without touching the tick list."""
+    _fake_devices(monkeypatch)
+    _fake_vm_config(monkeypatch, "name: test-vm\nusb0: host=058f:6387\n")
+
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=(120, 80)) as pilot:
+            await pilot.pause()
+            await _open_edit(pilot, app)
+            assert app.state.edit_usb_legacy == ["058f:6387"]
+            assert app._edit_usb_changed() is True
+            assert app.query_one("#edit_apply_btn", Button).disabled is False
 
     asyncio.run(_run())
 
@@ -736,6 +753,7 @@ def test_edit_passthrough_reaches_the_plan(monkeypatch) -> None:
             app.query_one("#edit_gpu", Select).value = "0000:01:00"
             app.query_one("#edit_console", Select).value = CONSOLE_GPU_PRIMARY
             app.query_one("#edit_usb_list", SelectionList).deselect_all()
+            app.query_one("#edit_usb_manual", Input).value = "05ac:12a8"
             await pilot.pause()
             await pilot.click("#edit_apply_btn")
             for _ in range(30):
@@ -747,6 +765,9 @@ def test_edit_passthrough_reaches_the_plan(monkeypatch) -> None:
             assert "Attach GPU 0000:01:00 (hostpci0,pcie=1,x-vga=1)" in titles
             assert "Disable Proxmox console (GPU is primary)" in titles
             assert "Detach USB device 058f:6387 (usb0)" in titles
+            # The TUI's own attach step carries usb3=1, not just the planner's.
+            attach = next(s for s in captured if s.title.startswith("Attach USB"))
+            assert attach.argv == ["qm", "set", "900", "--usb0", "host=05ac:12a8,usb3=1"]
 
     asyncio.run(_run())
 

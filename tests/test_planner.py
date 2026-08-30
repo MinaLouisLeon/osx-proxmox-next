@@ -1095,9 +1095,17 @@ _PASSTHROUGH_CFG = """name: macos-sequoia
 cores: 8
 net0: vmxnet3,bridge=vmbr0,macaddr=AA:BB:CC:DD:EE:FF
 hostpci0: 01:00,pcie=1,x-vga=1
-usb0: host=058f:6387
+usb0: host=058f:6387,usb3=1
 usb2: host=046d:c52b,usb3=1
 vga: none
+"""
+
+# The same VM as written before USB 3 passthrough: usb0 has no usb3=1, which is
+# exactly the config that leaves a passed-through keyboard dead on Sonoma.
+_LEGACY_USB_CFG = """name: macos-sequoia
+cores: 8
+usb0: host=089d:062f
+usb1: host=1a2c:9ef4
 """
 
 
@@ -1118,7 +1126,7 @@ def test_parse_indexed_entries_reads_hostpci_and_usb():
     from osx_proxmox_next.planner import _parse_indexed_entries
     assert _parse_indexed_entries(_PASSTHROUGH_CFG, "hostpci") == {0: "01:00,pcie=1,x-vga=1"}
     assert _parse_indexed_entries(_PASSTHROUGH_CFG, "usb") == {
-        0: "host=058f:6387", 2: "host=046d:c52b,usb3=1"}
+        0: "host=058f:6387,usb3=1", 2: "host=046d:c52b,usb3=1"}
     assert _parse_indexed_entries(None, "usb") == {}
 
 
@@ -1186,8 +1194,8 @@ def test_usb_attaches_new_devices_to_the_lowest_free_slots():
     attach = [s.argv for s in steps if s.title.startswith("Attach USB")]
     # usb0 stays with the device already in it, so the new ones take 1 and 2.
     assert attach == [
-        ["qm", "set", "900", "--usb1", "host=05ac:12a8"],
-        ["qm", "set", "900", "--usb2", "host=1234:5678"],
+        ["qm", "set", "900", "--usb1", "host=05ac:12a8,usb3=1"],
+        ["qm", "set", "900", "--usb2", "host=1234:5678,usb3=1"],
     ]
 
 
@@ -1224,6 +1232,102 @@ def test_usb_is_case_insensitive_against_the_vm_config():
 
 def test_usb_untouched_when_the_field_is_none():
     assert not any("USB" in t for t in _edit_titles(cores=4, cfg=_PASSTHROUGH_CFG))
+
+
+# ── USB 3 (XHCI) passthrough ─────────────────────────────────────────
+#
+# The VM's args already carry -device qemu-xhci, but a usb entry written as
+# plain host=VID:PID lands on the USB 2 hub, where macOS Sonoma and newer
+# never bind a passed-through keyboard or mouse. Every entry this project
+# writes therefore carries usb3=1.
+
+
+def test_usb_single_device_is_attached_as_usb3():
+    step = _edit_step("Attach USB", usb_devices=["089d:062f"])
+    assert step.argv == ["qm", "set", "900", "--usb0", "host=089d:062f,usb3=1"]
+
+
+def test_usb_multiple_devices_are_all_attached_as_usb3():
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(usb_devices=["089d:062f", "1a2c:9ef4"]))
+    assert [s.argv for s in steps if s.title.startswith("Attach USB")] == [
+        ["qm", "set", "900", "--usb0", "host=089d:062f,usb3=1"],
+        ["qm", "set", "900", "--usb1", "host=1a2c:9ef4,usb3=1"],
+    ]
+
+
+def test_usb_bus_port_devices_are_attached_as_usb3_too():
+    step = _edit_step("Attach USB", usb_devices=["2-1.2.2"])
+    assert step.argv == ["qm", "set", "900", "--usb0", "host=2-1.2.2,usb3=1"]
+
+
+def test_usb_existing_entries_without_usb3_are_upgraded_in_place():
+    """The keyboard/mouse case: same slots, same host ids, now with usb3=1."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(
+        900, EditChanges(usb_devices=["089d:062f", "1a2c:9ef4"]),
+        current_config=_LEGACY_USB_CFG,
+    )
+    usb = [s.argv for s in steps if "USB" in s.title]
+    assert usb == [
+        ["qm", "set", "900", "--usb0", "host=089d:062f,usb3=1"],
+        ["qm", "set", "900", "--usb1", "host=1a2c:9ef4,usb3=1"],
+    ]
+    # An upgrade is a rewrite, never a detach-and-reattach into a new slot.
+    assert not any("Detach USB" in s.title for s in steps)
+    assert all(s.title.startswith("Switch USB") for s in steps if "USB" in s.title)
+
+
+def test_usb_upgrade_keeps_other_parameters_on_the_entry():
+    cfg = "usb0: host=089d:062f,usb3=0\nusb1: host=1a2c:9ef4,mapping=kbd\n"
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(
+        900, EditChanges(usb_devices=["089d:062f", "1a2c:9ef4"]), current_config=cfg)
+    assert [s.argv for s in steps if "USB" in s.title] == [
+        ["qm", "set", "900", "--usb0", "host=089d:062f,usb3=1"],
+        ["qm", "set", "900", "--usb1", "host=1a2c:9ef4,mapping=kbd,usb3=1"],
+    ]
+
+
+def test_usb_entries_already_on_usb3_are_left_alone():
+    """Only the missing flag is worth a step; a correct VM still plans nothing."""
+    assert _edit_titles(usb_devices=["058f:6387", "046d:c52b"], cfg=_PASSTHROUGH_CFG) == []
+
+
+def test_usb_upgrade_does_not_touch_unrelated_config():
+    """No step outside the two usb keys, and nothing aimed at args or vga."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    cfg = _LEGACY_USB_CFG + (
+        "args: -device isa-applesmc,osk=x -device qemu-xhci -device usb-kbd "
+        "-device usb-tablet\nvga: std\n"
+    )
+    steps = build_edit_plan(900, EditChanges(usb_devices=["089d:062f", "1a2c:9ef4"]),
+                            current_config=cfg)
+    touched = {arg for s in steps for arg in s.argv if arg.startswith("--")}
+    assert touched == {"--usb0", "--usb1"}
+
+
+def test_usb_removal_still_deletes_the_slot_outright():
+    """Detach stays a --delete: usb3=1 has no bearing on taking a device away."""
+    from osx_proxmox_next.domain import EditChanges
+    from osx_proxmox_next.planner import build_edit_plan
+    steps = build_edit_plan(900, EditChanges(usb_devices=["089d:062f"]),
+                            current_config=_LEGACY_USB_CFG)
+    assert ["qm", "set", "900", "--delete", "usb1"] in [s.argv for s in steps]
+
+
+def test_usb_value_builds_and_upgrades_entries():
+    from osx_proxmox_next.planner import _usb_is_usb3, _usb_value
+    assert _usb_value("089d:062f") == "host=089d:062f,usb3=1"
+    assert _usb_value("089d:062f", "host=089d:062f") == "host=089d:062f,usb3=1"
+    assert _usb_value("089d:062f", "host=089d:062f,usb3=1") == "host=089d:062f,usb3=1"
+    assert _usb_is_usb3("host=089d:062f,usb3=1") is True
+    assert _usb_is_usb3("host=089d:062f") is False
+    assert _usb_is_usb3("host=089d:062f,usb3=0") is False
 
 
 def test_passthrough_runs_after_the_vm_is_stopped_and_before_the_start():
