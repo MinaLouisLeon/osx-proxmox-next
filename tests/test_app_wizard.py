@@ -2748,3 +2748,75 @@ def test_verbose_boot_shown_in_the_review_summary() -> None:
     assert "Verbose boot: on" in build_config_summary_text(
         VmConfig(**base, verbose_boot=True), [], cpu)
     assert "Verbose boot" not in build_config_summary_text(VmConfig(**base), [], cpu)
+
+
+# ── Step 2 layout ────────────────────────────────────────────────────
+#
+# The OS card row is a bare Horizontal, and Textual defaults those to
+# `height: 1fr`. That only behaves while the parent has a definite height to
+# divide; once #create_panel became `height: auto` the row claimed the whole
+# viewport and the Back/Next/Exit buttons under it fell off the bottom of the
+# screen, which read as the buttons having been deleted.
+
+
+def _normal_terminal() -> tuple[int, int]:
+    """A plainly sized terminal - step 2 has to fit in one with room to spare."""
+    return (100, 24)
+
+
+def test_step2_card_row_sizes_to_its_cards() -> None:
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_normal_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 2)
+            cards = app.query_one("#os_cards")
+            assert cards.styles.height is not None and cards.styles.height.is_auto
+            # One row of 5-high cards plus their margin, not the whole body.
+            assert cards.region.height < app.query_one("#body").content_region.height
+
+    asyncio.run(_run())
+
+
+def test_step2_nav_buttons_are_on_screen() -> None:
+    """The reported bug: Back/Next/Exit were nowhere to be seen on step 2."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_normal_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 2)
+            body = app.query_one("#body")
+            for button_id in ("#back_btn_2", "#next_btn", "#exit_btn_2"):
+                button = app.query_one(button_id, Button)
+                assert button.display, button_id
+                assert body.content_region.contains_region(button.region), button_id
+
+    asyncio.run(_run())
+
+
+def test_step2_fits_without_scrolling() -> None:
+    """Nothing on the OS screen is below the fold on a normal terminal."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_normal_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 2)
+            assert app.query_one("#body").max_scroll_y == 0
+
+    asyncio.run(_run())
+
+
+def test_step3_storage_row_sizes_to_its_buttons() -> None:
+    """Same shape one screen later - the storage row is a bare Horizontal too."""
+    async def _run() -> None:
+        app = NextApp()
+        async with app.run_test(size=_normal_terminal()) as pilot:
+            await pilot.pause()
+            await _advance_to_step(pilot, app, 3)
+            body = app.query_one("#body")
+            assert app.query_one("#storage_row").region.height < body.content_region.height
+            for button_id in ("#back_btn_3", "#next_btn_3", "#exit_btn_3"):
+                button = app.query_one(button_id, Button)
+                assert body.content_region.contains_region(button.region), button_id
+
+    asyncio.run(_run())
