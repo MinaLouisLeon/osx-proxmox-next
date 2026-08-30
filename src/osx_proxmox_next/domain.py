@@ -110,6 +110,12 @@ _USB_PORT_RE = re.compile(r"^\d+-\d+(?:\.\d+)*$")
 # but five is the number every supported Proxmox version accepts.
 MAX_USB_DEVICES = 5
 
+# Physical USB passthrough is attached to the VM's XHCI controller rather than
+# the default USB 2 hub. macOS Sonoma and newer talk to a passed-through
+# keyboard or mouse only when it arrives as a USB 3 device; without this the
+# device shows up in the config but never works in the guest.
+USB3_OPTION = "usb3=1"
+
 
 def _validate_passthrough(changes: EditChanges) -> list[str]:
     """Return problems with the GPU/USB passthrough fields."""

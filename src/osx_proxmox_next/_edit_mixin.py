@@ -18,7 +18,7 @@ from .domain import (
 )
 from .executor import StepResult
 from .rollback import create_snapshot
-from .planner import _parse_indexed_entries, _usb_host_id
+from .planner import _parse_indexed_entries, _usb_host_id, _usb_is_usb3
 from .screens import (
     CONSOLE_GPU_PRIMARY,
     VERBOSE_BOOT_KEEP,
@@ -102,6 +102,11 @@ class EditModeMixin:
         self.state.edit_current_usb = [  # type: ignore[attr-defined]
             host_id for host_id in (_usb_host_id(entry) for entry in usb.values()) if host_id
         ]
+        self.state.edit_usb_legacy = [  # type: ignore[attr-defined]
+            host_id for host_id, entry in
+            ((_usb_host_id(entry), entry) for entry in usb.values())
+            if host_id and not _usb_is_usb3(entry)
+        ]
         # Only now is unticking safe to read as "detach": before the config
         # arrives an empty list means "not known yet", not "detach everything".
         self.state.edit_usb_known = bool(config)  # type: ignore[attr-defined]
@@ -179,11 +184,19 @@ class EditModeMixin:
         return selected
 
     def _edit_usb_changed(self) -> bool:
-        """True when the requested USB set differs from what the VM has."""
+        """True when the requested USB set differs from what the VM has.
+
+        A device that is already attached but not as a USB 3 device counts as
+        a change too: leaving it alone is what stops a passed-through keyboard
+        from working on macOS Sonoma and newer.
+        """
         wanted = self._read_edit_usb()
         if wanted is None:
             return False
-        return set(wanted) != set(self.state.edit_current_usb)  # type: ignore[attr-defined]
+        if set(wanted) != set(self.state.edit_current_usb):  # type: ignore[attr-defined]
+            return True
+        return any(host_id in wanted
+                   for host_id in self.state.edit_usb_legacy)  # type: ignore[attr-defined]
 
     def _validate_edit_form(self) -> None:
         try:

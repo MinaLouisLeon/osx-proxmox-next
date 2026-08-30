@@ -296,6 +296,12 @@ Devices are addressed as `vendor:product` (from `lsusb`) or as a `2-1.2.2`
 bus-port path. Up to five can be passed at once. Run `lspci -nn` and `lsusb` on
 the host to find addresses, or use the TUI, which lists them for you.
 
+Every device is attached as USB 3 on the VM's XHCI controller
+(`usb0: host=058f:6387,usb3=1`). Modern macOS -- Sonoma, Sequoia, Tahoe --
+often will not bind a passed-through keyboard or mouse that arrives on the USB 2
+hub. An older entry without the flag is rewritten in place, in the same slot,
+the next time USB passthrough is applied.
+
 :::warning
 PCI passthrough needs host-side setup first -- IOMMU on the kernel cmdline and
 the GPU bound to `vfio-pci`. `edit` attaches the device to the VM; it does not
